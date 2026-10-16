@@ -14,6 +14,7 @@ import 'steam_api_service.dart';
 import 'workshop_database.dart';
 import 'workshop_models.dart';
 import 'workshop_preview.dart';
+import 'workspace_widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -351,191 +352,104 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   Widget _buildNavigation({bool compact = false}) {
     final labels = ['创作者', '作品资料库', '变更记录', '设置与备份'];
     final icons = [
-      Icons.people_outline_rounded,
-      Icons.photo_library_outlined,
+      Icons.dashboard_outlined,
+      Icons.wallpaper_outlined,
       Icons.history_rounded,
-      Icons.tune_rounded
+      Icons.settings_outlined
     ];
     return Container(
-      width: compact ? 72 : 218,
-      decoration: BoxDecoration(
-          color: AppPalette.bgSidebar,
-          border: Border(right: BorderSide(color: AppPalette.borderSubtle))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      width: compact ? 88 : 208,
+      color: AppPalette.bgSidebar,
+      child: Column(children: [
+        SizedBox(height: 26),
         Padding(
-            padding: EdgeInsets.fromLTRB(compact ? 16 : 22, 28, 16, 30),
+            padding: EdgeInsets.symmetric(horizontal: 22),
             child: Row(children: [
-              Container(
-                  width: 34,
-                  height: 34,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                      color: AppPalette.accentCyan,
-                      borderRadius: BorderRadius.circular(10)),
-                  child: Icon(Icons.layers_outlined,
-                      size: 21,
-                      color:
-                          AppPalette.dark ? Color(0xFF211A38) : Colors.white)),
+              Icon(Icons.layers_rounded,
+                  size: 28, color: AppPalette.accentCyan),
               if (!compact) ...[
-                SizedBox(width: 10),
+                SizedBox(width: 12),
                 Text('工坊档案',
-                    style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: AppPalette.textPrimary))
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600))
               ],
             ])),
-        if (!compact)
-          Padding(
-              padding: EdgeInsets.fromLTRB(24, 0, 0, 12),
-              child: Text('工作空间',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: AppPalette.textMuted,
-                      letterSpacing: 1))),
+        SizedBox(height: 36),
         for (var i = 0; i < labels.length; i++)
           Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 10 : 12, vertical: 3),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Tooltip(
-                  message: compact ? labels[i] : '',
+                  message: labels[i],
                   child: Material(
                     color: _selectedNavIndex == i
-                        ? AppPalette.accentCyan.withValues(alpha: .10)
+                        ? Theme.of(context).colorScheme.secondaryContainer
                         : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(compact ? 20 : 16),
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(20),
                       onTap: () => _selectWorkspace(i),
                       child: Padding(
                           padding: EdgeInsets.symmetric(
-                              horizontal: compact ? 14 : 12, vertical: 13),
-                          child: Row(children: [
-                            Icon(icons[i],
-                                size: 20,
-                                color: _selectedNavIndex == i
-                                    ? AppPalette.accentCyan
-                                    : AppPalette.textSecondary),
-                            if (!compact) ...[
-                              SizedBox(width: 12),
-                              Expanded(
-                                  child: Text(labels[i],
+                              horizontal: compact ? 8 : 16, vertical: 15),
+                          child: compact
+                              ? Column(children: [
+                                  Icon(icons[i], size: 23),
+                                  SizedBox(height: 5),
+                                  Text(['概览', '作品', '动态', '设置'][i],
+                                      style: TextStyle(fontSize: 10)),
+                                ])
+                              : Row(children: [
+                                  Icon(icons[i], size: 22),
+                                  SizedBox(width: 14),
+                                  Text(i == 0 ? '概览' : labels[i],
                                       style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: _selectedNavIndex == i
                                               ? FontWeight.w600
-                                              : FontWeight.w400,
-                                          color: _selectedNavIndex == i
-                                              ? AppPalette.accentCyan
-                                              : AppPalette.textSecondary))),
-                              if (i == 0)
-                                Text('${_creators.length}',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: AppPalette.textMuted))
-                            ],
-                          ])),
+                                              : FontWeight.w400)),
+                                ])),
                     ),
                   ))),
         Spacer(),
+        IconButton(
+            tooltip: AppPalette.dark ? '切换浅色主题' : '切换深色主题',
+            onPressed: () => _persistSettings(
+                _settings.copyWith(useDarkTheme: !AppPalette.dark)),
+            icon: Icon(AppPalette.dark
+                ? Icons.light_mode_outlined
+                : Icons.dark_mode_outlined)),
+        SizedBox(height: 10),
         if (!compact)
-          Padding(
-              padding: EdgeInsets.all(20),
-              child: Container(
-                  padding: EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                      color: AppPalette.bgCard.withValues(alpha: .6),
-                      borderRadius: BorderRadius.circular(10)),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Icon(Icons.shield_outlined,
-                              size: 16, color: AppPalette.statusActive),
-                          SizedBox(width: 8),
-                          Text('本地档案',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppPalette.textPrimary))
-                        ]),
-                        SizedBox(height: 8),
-                        Text('作品信息与历史封面\n保存在你的电脑中',
-                            style: TextStyle(
-                                fontSize: 11,
-                                height: 1.7,
-                                color: AppPalette.textSecondary)),
-                      ]))),
-        Padding(
-            padding: EdgeInsets.fromLTRB(
-                compact ? 10 : 12, 0, compact ? 10 : 12, 20),
-            child: Row(
-                mainAxisAlignment: compact
-                    ? MainAxisAlignment.center
-                    : MainAxisAlignment.start,
-                children: [
-                  IconButton(
-                      tooltip: AppPalette.dark ? '切换浅色主题' : '切换深色主题',
-                      onPressed: () => _persistSettings(
-                          _settings.copyWith(useDarkTheme: !AppPalette.dark)),
-                      icon: Icon(
-                          AppPalette.dark
-                              ? Icons.light_mode_outlined
-                              : Icons.dark_mode_outlined,
-                          size: 19,
-                          color: AppPalette.textSecondary)),
-                  if (!compact)
-                    Text(AppPalette.dark ? '深色外观' : '浅色外观',
-                        style: TextStyle(
-                            fontSize: 12, color: AppPalette.textSecondary)),
-                ])),
+          Text('Wallpaper Engine · 本地档案',
+              style: TextStyle(fontSize: 10, color: AppPalette.textMuted)),
+        SizedBox(height: 24),
       ]),
     );
   }
 
   Widget _buildWorkspaceToolbar() {
-    final labels = ['创作者', '作品资料库', '变更记录', '设置与备份'];
-    return Container(
-        height: 66,
-        padding: EdgeInsets.symmetric(horizontal: 28),
-        decoration: BoxDecoration(
-            color: AppPalette.bgCard,
-            border: Border(bottom: BorderSide(color: AppPalette.borderSubtle))),
-        child: Row(children: [
-          Icon(Icons.folder_open_rounded,
-              size: 17, color: AppPalette.textMuted),
-          SizedBox(width: 10),
-          Text('工作空间',
-              style: TextStyle(fontSize: 12, color: AppPalette.textMuted)),
-          Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              child:
-                  Text('/', style: TextStyle(color: AppPalette.borderSubtle))),
-          Text(labels[_selectedNavIndex],
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppPalette.textPrimary)),
-          Spacer(),
-          if (MediaQuery.sizeOf(context).width > 900) ...[
-            Icon(Icons.circle,
-                size: 6,
-                color: _isBusy
-                    ? AppPalette.statusModified
-                    : AppPalette.statusActive),
-            SizedBox(width: 7),
-            Text(_isBusy ? '同步中' : '已就绪',
-                style:
-                    TextStyle(fontSize: 12, color: AppPalette.textSecondary)),
-            SizedBox(width: 22),
-          ],
-          IconButton(
+    final titles = ['概览', '作品资料库', '变更记录', '设置与备份'];
+    return Padding(
+      padding: EdgeInsets.fromLTRB(28, 22, 28, 8),
+      child: Row(children: [
+        Text(titles[_selectedNavIndex],
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w500)),
+        Spacer(),
+        if (_selectedNavIndex == 0) ...[
+          IconButton.filledTonal(
               tooltip: '同步全部创作者',
               onPressed: _isBusy || _creators.isEmpty
                   ? null
                   : () => _schedulerTrayService.runScheduledSyncAllCreators(),
-              icon: Icon(Icons.sync_rounded, size: 20)),
-        ]));
+              icon: Icon(Icons.sync_rounded, size: 21)),
+          SizedBox(width: 10),
+          IconButton.filledTonal(
+              tooltip: '添加创作者',
+              onPressed: _isBusy ? null : _showAddCreatorDialog,
+              icon: Icon(Icons.add_rounded, size: 21)),
+        ] else
+          Icon(Icons.layers_outlined, color: AppPalette.textMuted, size: 23),
+      ]),
+    );
   }
 
   Widget _buildTopProgressStrip() {
@@ -590,161 +504,148 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   }
 
   // ==========================================================================
-  // 视图 1：创作者监测中心 (Bento KPI 仪表盘 + 创作者高密度状态卡片)
+  // 视图 1：概览与创作者
   // ==========================================================================
   Widget _buildCreatorsView(
       {required int totalActive, required int totalMissing}) {
     final ready = _creators.where((c) => c.isBaselineCompleted).length;
-    final stats = [
-      _buildBentoKpiCard(
-          title: '监测创作者',
-          value: '${_creators.length}',
-          subtitle: '已建立档案 $ready 位',
-          icon: Icons.people_alt_outlined,
-          accent: AppPalette.accentCyan),
-      _buildBentoKpiCard(
-          title: '归档作品',
-          value: '${totalActive + totalMissing}',
-          subtitle: '作品信息与历史封面',
-          icon: Icons.inventory_2_outlined,
-          accent: AppPalette.accentIndigo),
-      _buildBentoKpiCard(
-          title: '可访问作品',
-          value: '$totalActive',
-          subtitle: '最近一次同步可访问',
-          icon: Icons.cloud_done_outlined,
-          accent: AppPalette.statusActive),
-      _buildBentoKpiCard(
-          title: '消失 / 下架',
-          value: '$totalMissing',
-          subtitle: '查看已保存的历史档案',
-          icon: Icons.shield_outlined,
-          accent: AppPalette.statusMissing,
-          onTap: () {
-            setState(() {
-              _selectedNavIndex = 1;
-              _galleryStatusFilter = ItemStatus.missing;
-              _onlyModifiedFilter = false;
-            });
-            _refreshData();
-          }),
-    ];
-    return CustomScrollView(
-      slivers: [
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(24, 28, 24, 0),
-          sliver: SliverToBoxAdapter(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                _AdaptiveHeader(
-                  title: '关注的创作者',
-                  subtitle: '在这里管理关注，记录作品的每一次变化。',
-                  action: FilledButton.icon(
-                    onPressed: _isBusy ? null : _showAddCreatorDialog,
-                    icon: Icon(Icons.add, size: 19),
-                    label: Text('添加创作者'),
-                    style: FilledButton.styleFrom(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 20, vertical: 18)),
-                  ),
-                ),
-                SizedBox(height: 24),
-                LayoutBuilder(builder: (context, constraints) {
-                  final columns = constraints.maxWidth >= 920
-                      ? 4
-                      : constraints.maxWidth >= 460
-                          ? 2
-                          : 1;
-                  return Wrap(spacing: 12, runSpacing: 12, children: [
-                    for (final stat in stats)
-                      SizedBox(
-                          width: (constraints.maxWidth - 12 * (columns - 1)) /
-                              columns,
-                          child: stat),
-                  ]);
-                }),
-                SizedBox(height: 28),
-                Row(children: [
-                  Text('正在关注',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                  SizedBox(width: 10),
-                  _buildStatusPill(
-                      label: '${_creators.length} 位创作者',
-                      color: AppPalette.textSecondary),
-                ]),
-                SizedBox(height: 14),
-              ])),
-        ),
-        if (_creators.isEmpty)
-          SliverFillRemaining(
-              hasScrollBody: false,
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: _buildEmptyStateCard(
-                    icon: Icons.person_add_alt,
-                    title: '从一张喜欢的壁纸开始',
-                    subtitle:
-                        '粘贴 Wallpaper Engine 壁纸的创意工坊链接，即可识别作者。也支持 SteamID 和作者主页。',
-                    actionLabel: '添加第一位创作者',
-                    onAction: _showAddCreatorDialog),
-              ))
-        else
-          SliverPadding(
-              padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
-              sliver: SliverList.separated(
-                itemCount: _creators.length,
-                separatorBuilder: (_, __) => SizedBox(height: 12),
-                itemBuilder: (context, i) => _buildCreatorRowCard(_creators[i]),
-              )),
-      ],
-    );
-  }
-
-  Widget _buildBentoKpiCard(
-      {required String title,
-      required String value,
-      required String subtitle,
-      required IconData icon,
-      required Color accent,
-      VoidCallback? onTap}) {
-    return Material(
-        color: AppPalette.bgCard,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
-                padding: EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                    border: Border.all(color: AppPalette.borderSubtle),
-                    borderRadius: BorderRadius.circular(10)),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Expanded(
-                            child: Text(title,
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppPalette.textSecondary))),
-                        Icon(icon, size: 17, color: AppPalette.textMuted)
-                      ]),
-                      SizedBox(height: 10),
-                      Text(value,
-                          style: TextStyle(
-                              fontSize: 28,
-                              height: 1.2,
-                              fontWeight: FontWeight.w600,
-                              color: AppPalette.textPrimary)),
-                      SizedBox(height: 7),
-                      Text(subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 11, color: AppPalette.textMuted)),
-                    ]))));
+    final scheme = Theme.of(context).colorScheme;
+    final archive = WorkspaceSurface(
+        tonal: true,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(Icons.inventory_2_outlined, size: 20),
+            SizedBox(width: 10),
+            Text('作品档案', style: TextStyle(fontSize: 14)),
+            Spacer(),
+            Icon(Icons.arrow_outward_rounded, size: 20)
+          ]),
+          SizedBox(height: 24),
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text('${totalActive + totalMissing}',
+                style: TextStyle(
+                    fontSize: 48,
+                    height: 1,
+                    fontWeight: FontWeight.w400,
+                    color: scheme.onSecondaryContainer)),
+            Padding(
+                padding: EdgeInsets.only(left: 10, bottom: 5),
+                child: Text('件已归档',
+                    style: TextStyle(color: scheme.onSecondaryContainer))),
+          ]),
+          SizedBox(height: 24),
+          ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                  value: totalActive + totalMissing == 0
+                      ? 0
+                      : totalActive / (totalActive + totalMissing),
+                  minHeight: 7,
+                  color: AppPalette.accentCyan,
+                  backgroundColor:
+                      scheme.onSecondaryContainer.withValues(alpha: .10))),
+          SizedBox(height: 14),
+          Row(children: [
+            Text('$totalActive 可访问', style: TextStyle(fontSize: 12)),
+            Spacer(),
+            Text('$totalMissing 消失 / 下架', style: TextStyle(fontSize: 12))
+          ]),
+        ]));
+    final connection = WorkspaceSurface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Icon(Icons.hub_outlined, size: 20),
+        SizedBox(width: 10),
+        Text('查询与同步', style: TextStyle(fontSize: 14)),
+        Spacer(),
+        Icon(Icons.circle,
+            size: 8,
+            color:
+                _isBusy ? AppPalette.statusModified : AppPalette.statusActive)
+      ]),
+      SizedBox(height: 24),
+      Text(_settings.steamQueryMode.label,
+          style: TextStyle(fontSize: 23, fontWeight: FontWeight.w500)),
+      SizedBox(height: 8),
+      Text(
+          _settings.pollIntervalHours == 0
+              ? '手动同步 · 按需检查作品更新'
+              : '每 ${_settings.pollIntervalHours} 小时自动检查',
+          style: TextStyle(fontSize: 12, color: AppPalette.textSecondary)),
+      SizedBox(height: 22),
+      Row(children: [
+        Text('$ready / ${_creators.length} 位已建档',
+            style: TextStyle(fontSize: 12, color: AppPalette.textSecondary)),
+        Spacer(),
+        TextButton(onPressed: () => _selectWorkspace(3), child: Text('管理设置'))
+      ]),
+    ]));
+    return ListView(padding: EdgeInsets.fromLTRB(28, 20, 28, 28), children: [
+      LayoutBuilder(
+          builder: (context, c) => c.maxWidth >= 760
+              ? IntrinsicHeight(
+                  child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                      Expanded(
+                          flex: 3,
+                          child: InkWell(
+                              onTap: () => _selectWorkspace(1),
+                              borderRadius: BorderRadius.circular(24),
+                              child: archive)),
+                      SizedBox(width: 16),
+                      Expanded(flex: 2, child: connection)
+                    ]))
+              : Column(children: [
+                  InkWell(
+                      onTap: () => _selectWorkspace(1),
+                      borderRadius: BorderRadius.circular(24),
+                      child: archive),
+                  SizedBox(height: 16),
+                  connection
+                ])),
+      SizedBox(height: 28),
+      Row(children: [
+        Text('创作者',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+        SizedBox(width: 10),
+        Text('${_creators.length}',
+            style: TextStyle(color: AppPalette.textMuted)),
+        Spacer(),
+        TextButton.icon(
+            onPressed: _isBusy ? null : _showAddCreatorDialog,
+            icon: Icon(Icons.add_rounded, size: 18),
+            label: Text('添加创作者'))
+      ]),
+      SizedBox(height: 12),
+      if (_creators.isEmpty)
+        _buildEmptyStateCard(
+            icon: Icons.person_add_alt,
+            title: '从一张喜欢的壁纸开始',
+            subtitle: '粘贴作品链接，识别并关注创作者。',
+            actionLabel: '添加第一位创作者',
+            onAction: _showAddCreatorDialog)
+      else
+        WorkspaceSurface(
+            padding: EdgeInsets.zero,
+            child: Column(children: [
+              for (var i = 0; i < _creators.length; i++) ...[
+                if (i > 0)
+                  Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 24),
+                      child: Divider()),
+                _buildCreatorRowCard(_creators[i]),
+              ],
+            ])),
+      SizedBox(height: 20),
+      Row(children: [
+        Icon(Icons.shield_outlined, size: 15, color: AppPalette.textMuted),
+        SizedBox(width: 8),
+        Expanded(
+            child: Text('作品信息与历史预览图保存在本机',
+                style: TextStyle(fontSize: 11, color: AppPalette.textMuted)))
+      ]),
+    ]);
   }
 
   Widget _buildCreatorRowCard(Creator creator) {
@@ -851,7 +752,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     ]);
     final metrics = Row(mainAxisSize: MainAxisSize.min, children: [
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('${creator.totalActiveCount}',
+        Text('${creator.totalActiveCount + creator.totalMissingCount}',
             style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -881,15 +782,13 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       ]),
     ]);
     return Material(
-        color: AppPalette.bgCard,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         child: Container(
             padding: EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-            decoration: BoxDecoration(
-                border: Border.all(color: AppPalette.borderSubtle),
-                borderRadius: BorderRadius.circular(10)),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(10)),
             child: LayoutBuilder(builder: (context, constraints) {
-              if (constraints.maxWidth < 1020) {
+              if (constraints.maxWidth < 940) {
                 return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -932,20 +831,20 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   }
 
   // ==========================================================================
-  // 视图 2：作品图鉴画廊 (含悬停微动效卡片、多维状态筛选、卡片尺寸调节滑块)
+  // 视图 2：作品资料库
   // ==========================================================================
   Widget _buildGalleryView(
       {required int totalActive, required int totalMissing}) {
     return Padding(
         padding: EdgeInsets.all(28),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _AdaptiveHeader(
-              title: '作品资料库',
-              subtitle: '作品信息、历史封面，以及值得留存的每一次更新。',
-              action: Text('${_items.length} 件作品',
-                  style: TextStyle(
-                      fontSize: 12, color: AppPalette.textSecondary))),
-          SizedBox(height: 24),
+          Row(children: [
+            Text('所有作品', style: TextStyle(fontSize: 14)),
+            Spacer(),
+            Text('${_items.length} 件作品',
+                style: TextStyle(fontSize: 12, color: AppPalette.textSecondary))
+          ]),
+          SizedBox(height: 18),
           LayoutBuilder(
               builder: (context, constraints) => Wrap(
                       spacing: 10,
@@ -1044,7 +943,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                           maxCrossAxisExtent: _galleryCardMaxExtent,
                           mainAxisSpacing: 18,
                           crossAxisSpacing: 18,
-                          childAspectRatio: .96),
+                          childAspectRatio: 1.10),
                       itemCount: _items.length,
                       itemBuilder: (context, i) {
                         final item = _items[i];
@@ -1605,38 +1504,34 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _AdaptiveHeader(
-            title: '变更记录',
-            subtitle: '追踪新作发布、作品修改与下架事件。',
-            action: Wrap(
-              spacing: 8,
-              children: [
+          Wrap(
+            spacing: 8,
+            children: [
+              _buildFilterTabPill(
+                label: '全部事件',
+                isSelected: _logTypeFilter == null,
+                accent: AppPalette.accentCyan,
+                onTap: () {
+                  setState(() => _logTypeFilter = null);
+                  _refreshData();
+                },
+              ),
+              for (final t in [
+                ChangeType.added,
+                ChangeType.modified,
+                ChangeType.missing,
+                ChangeType.restored,
+              ])
                 _buildFilterTabPill(
-                  label: '全部事件',
-                  isSelected: _logTypeFilter == null,
-                  accent: AppPalette.accentCyan,
+                  label: t.label,
+                  isSelected: _logTypeFilter == t,
+                  accent: t.color,
                   onTap: () {
-                    setState(() => _logTypeFilter = null);
+                    setState(() => _logTypeFilter = t);
                     _refreshData();
                   },
                 ),
-                for (final t in [
-                  ChangeType.added,
-                  ChangeType.modified,
-                  ChangeType.missing,
-                  ChangeType.restored,
-                ])
-                  _buildFilterTabPill(
-                    label: t.label,
-                    isSelected: _logTypeFilter == t,
-                    accent: t.color,
-                    onTap: () {
-                      setState(() => _logTypeFilter = t);
-                      _refreshData();
-                    },
-                  ),
-              ],
-            ),
+            ],
           ),
           SizedBox(height: 20),
           Expanded(
@@ -1751,46 +1646,71 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   // 视图 4：本地备份与同步设置
   // ==========================================================================
   Widget _buildBackupSettingsView() {
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '设置与备份',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-              color: AppPalette.textPrimary,
-            ),
-          ),
-          SizedBox(height: 4),
-          Text(
-            '选择同步方式，并为作品档案设置本地备份。',
-            style: TextStyle(fontSize: 13, color: AppPalette.textSecondary),
-          ),
-          SizedBox(height: 22),
-          // 第一行：左卡片（Steam 采集与后台守护） + 右卡片（本地双模式备份）
-          LayoutBuilder(builder: (context, constraints) {
-            if (constraints.maxWidth < 1000) {
-              return Column(children: [
-                _buildSteamAndScheduleCard(),
-                SizedBox(height: 18),
-                _buildLocalBackupCard()
-              ]);
-            }
-            return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(child: _buildSteamAndScheduleCard()),
-              SizedBox(width: 18),
-              Expanded(child: _buildLocalBackupCard())
-            ]);
-          }),
-          SizedBox(height: 18),
-          // 第三行：备份执行历史记录审计表
-          if (_backupRecords.isNotEmpty) _buildBackupHistoryTableCard(),
-        ],
-      ),
-    );
+    Widget section(String title, Widget child) => Padding(
+        padding: EdgeInsets.only(bottom: 24),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+              padding: EdgeInsets.only(left: 8, bottom: 12),
+              child: Text(title,
+                  style:
+                      TextStyle(fontSize: 13, color: AppPalette.accentCyan))),
+          WorkspaceSurface(padding: EdgeInsets.zero, child: child),
+        ]));
+    return ListView(padding: EdgeInsets.fromLTRB(28, 20, 28, 28), children: [
+      section(
+          '连接与同步',
+          Theme(
+              data:
+                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                leading: Icon(Icons.hub_outlined),
+                title: Text('查询方式', style: TextStyle(fontSize: 14)),
+                subtitle: Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                        '${_settings.steamQueryMode.label} · ${_settings.pollIntervalHours == 0 ? '手动同步' : '每 ${_settings.pollIntervalHours} 小时检查'}',
+                        style: TextStyle(
+                            fontSize: 12, color: AppPalette.textSecondary))),
+                children: [_buildSteamAndScheduleCard()],
+              ))),
+      section(
+          '存储',
+          Theme(
+              data:
+                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                leading: Icon(Icons.folder_outlined),
+                title: Text('本地备份', style: TextStyle(fontSize: 14)),
+                subtitle: Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                        _settings.localBackupDir.isEmpty
+                            ? '使用默认目录 · ZIP 归档与目录镜像'
+                            : _settings.localBackupDir,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12, color: AppPalette.textSecondary))),
+                children: [_buildLocalBackupCard()],
+              ))),
+      section(
+          '外观',
+          WorkspaceSettingTile(
+              icon: Icons.palette_outlined,
+              title: '深色模式',
+              subtitle: AppPalette.dark ? '已开启' : '已关闭',
+              trailing: Switch(
+                  value: AppPalette.dark,
+                  onChanged: (value) => _persistSettings(
+                      _settings.copyWith(useDarkTheme: value))))),
+      if (_backupRecords.isNotEmpty) _buildBackupHistoryTableCard(),
+      Padding(
+          padding: EdgeInsets.all(8),
+          child: Text('工坊档案 · Wallpaper Engine Workshop',
+              style: TextStyle(fontSize: 11, color: AppPalette.textMuted))),
+    ]);
   }
 
   Future<void> _testWebApiKey() async {
@@ -2426,39 +2346,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
 // 3. 桌面端交互式悬停壁纸卡片组件 (_WorkshopGalleryHoverCard)
 // ============================================================================
 
-class _AdaptiveHeader extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final Widget action;
-  const _AdaptiveHeader(
-      {required this.title, required this.subtitle, required this.action});
-  @override
-  Widget build(BuildContext context) {
-    final heading =
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(title,
-          style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: AppPalette.textPrimary)),
-      SizedBox(height: 8),
-      Text(subtitle,
-          style: TextStyle(
-              fontSize: 13, height: 1.5, color: AppPalette.textSecondary)),
-    ]);
-    return LayoutBuilder(
-        builder: (context, constraints) => constraints.maxWidth < 760
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [heading, SizedBox(height: 16), action])
-            : Row(children: [
-                Expanded(child: heading),
-                SizedBox(width: 24),
-                action
-              ]));
-  }
-}
-
 class _WorkshopGalleryHoverCard extends StatefulWidget {
   final WorkshopItem item;
   final String dataRootDir;
@@ -2489,7 +2376,7 @@ class _WorkshopGalleryHoverCardState extends State<_WorkshopGalleryHoverCard> {
           duration: Duration(milliseconds: 160),
           decoration: BoxDecoration(
               color: AppPalette.bgCard,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(
                   color: _isHovered
                       ? AppPalette.accentCyan.withValues(alpha: .5)

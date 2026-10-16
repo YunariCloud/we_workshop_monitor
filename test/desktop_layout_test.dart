@@ -175,6 +175,10 @@ void main() {
             child: WorkshopMonitorApp(database: PreviewDatabase(dark: dark))));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        if (size.width < 760) {
+          await tester.scrollUntilVisible(find.text('云烟'), 180,
+              scrollable: find.byType(Scrollable).first);
+        }
         expect(find.text('云烟'), findsOneWidget);
 
         if (const bool.fromEnvironment('SAVE_UI_PREVIEW') &&
@@ -192,7 +196,7 @@ void main() {
             image.dispose();
           });
         }
-        await tester.tap(find.text('添加创作者').last);
+        await tester.tap(find.byTooltip('添加创作者'));
         await tester.pumpAndSettle();
         expect(find.text('从壁纸识别'), findsOneWidget);
         expect(tester.takeException(), isNull);
@@ -203,9 +207,7 @@ void main() {
         await tester.tap(find.text('取消'));
         await tester.pumpAndSettle();
         for (final label in ['作品资料库', '变更记录', '设置与备份']) {
-          final target = size.width < 1200
-              ? find.byTooltip(label)
-              : find.text(label).first;
+          final target = find.byTooltip(label);
           if (const bool.fromEnvironment('SAVE_UI_PREVIEW') &&
               label == '作品资料库') {
             await tester.runAsync(() async {
@@ -254,6 +256,16 @@ void main() {
           }
         }
         expect(find.text('查询方式'), findsOneWidget);
+        await tester.tap(find.text('查询方式'));
+        await tester.pumpAndSettle();
+        expect(find.text('Steam Web API Key'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('查询方式').first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('本地备份').first);
+        await tester.pumpAndSettle();
+        expect(find.text('创建 ZIP 备份'), findsOneWidget);
+        expect(tester.takeException(), isNull);
         final toggle = find.byTooltip(dark ? '切换浅色主题' : '切换深色主题');
         await tester.tap(toggle);
         await tester.pumpAndSettle();

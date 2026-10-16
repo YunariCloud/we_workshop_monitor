@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show Size;
 
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -8,6 +9,25 @@ import 'backup_service.dart';
 import 'diff_engine.dart';
 import 'workshop_database.dart';
 import 'workshop_models.dart';
+
+const desktopMinimumSize = Size(960, 680);
+
+Future<void> configureDesktopWindow() async {
+  await windowManager.ensureInitialized();
+  await windowManager.setMinimumSize(desktopMinimumSize);
+  final size = await windowManager.getSize();
+  if (size.width < desktopMinimumSize.width ||
+      size.height < desktopMinimumSize.height) {
+    await windowManager.setSize(Size(
+      size.width < desktopMinimumSize.width
+          ? desktopMinimumSize.width
+          : size.width,
+      size.height < desktopMinimumSize.height
+          ? desktopMinimumSize.height
+          : size.height,
+    ));
+  }
+}
 
 /// 桌面端系统托盘驻留与后台定时轮询守护服务
 class SchedulerAndTrayService with WindowListener, TrayListener {
@@ -34,7 +54,7 @@ class SchedulerAndTrayService with WindowListener, TrayListener {
     }
 
     try {
-      await windowManager.ensureInitialized();
+      await configureDesktopWindow();
       await windowManager.setPreventClose(true);
       windowManager.addListener(this);
 

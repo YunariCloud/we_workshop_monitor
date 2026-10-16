@@ -83,7 +83,37 @@ class PreviewDatabase implements WorkshopDatabase {
           String? creatorSteamId,
           ChangeType? changeTypeFilter,
           int limit = 300}) async =>
-      [];
+      [
+        ItemChangeLog(
+            publishedFileId: '3200000000',
+            creatorSteamId: '76561199182487944',
+            syncBatchId: 'test-batch',
+            changeType: ChangeType.modified,
+            changedFields: {
+              'title': {'old': '旧作品名', 'new': '山间回声 · Mountain Echoes'},
+              'description': {'old': '旧的简介', 'new': '新的简介，仅在详情显示'}
+            },
+            detectedAt: DateTime(2026, 10, 16, 12)),
+        ItemChangeLog(
+            publishedFileId: '3200000001',
+            creatorSteamId: '76561199182487944',
+            syncBatchId: 'test-batch',
+            changeType: ChangeType.added,
+            changedFields: {'title': '浮光之城'},
+            detectedAt: DateTime(2026, 10, 16, 11)),
+        ItemChangeLog(
+            publishedFileId: '3200000004',
+            creatorSteamId: '76561199182487944',
+            syncBatchId: 'test-batch',
+            changeType: ChangeType.missing,
+            changedFields: {'last_known_title': 'Orbital'},
+            detectedAt: DateTime(2026, 10, 16, 10)),
+      ]
+          .where((log) =>
+              (publishedFileId == null ||
+                  log.publishedFileId == publishedFileId) &&
+              (changeTypeFilter == null || log.changeType == changeTypeFilter))
+          .toList();
   @override
   Future<List<BackupRecord>> getBackupRecords({int limit = 50}) async => [];
   @override
@@ -159,6 +189,7 @@ void main() {
     for (final size in [
       const Size(1440, 900),
       const Size(900, 700),
+      const Size(960, 680),
       const Size(720, 620)
     ]) {
       testWidgets(
@@ -195,6 +226,25 @@ void main() {
                 .writeAsBytes(bytes!.buffer.asUint8List());
             image.dispose();
           });
+        }
+        if (const bool.fromEnvironment('SAVE_UI_PREVIEW') &&
+            size.width == 1440) {
+          final gesture =
+              await tester.startGesture(tester.getCenter(find.text('作品档案')));
+          await tester.pump(const Duration(milliseconds: 150));
+          await tester.runAsync(() async {
+            final image = await (preview.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary)
+                .toImage();
+            final bytes =
+                await image.toByteData(format: ui.ImageByteFormat.png);
+            await File(
+                    '.dart_tool/ui-preview/pressed-${dark ? 'dark' : 'light'}.png')
+                .writeAsBytes(bytes!.buffer.asUint8List());
+            image.dispose();
+          });
+          await gesture.cancel();
+          await tester.pumpAndSettle();
         }
         await tester.tap(find.byTooltip('添加创作者'));
         await tester.pumpAndSettle();
@@ -253,6 +303,39 @@ void main() {
                   .writeAsBytes(bytes!.buffer.asUint8List());
               image.dispose();
             });
+          }
+          if (label == '作品资料库' && size.width >= 960) {
+            await tester.tap(find.text('山间回声 · Mountain Echoes'));
+            await tester.pumpAndSettle();
+            expect(find.text('变更历史'), findsOneWidget);
+            expect(tester.takeException(), isNull);
+            await tester.tap(find.byIcon(Icons.close).last);
+            await tester.pumpAndSettle();
+          }
+          if (label == '变更记录') {
+            expect(find.textContaining('新的简介'), findsNothing);
+            expect(find.textContaining('test-batch'), findsNothing);
+            await tester.tap(find.text('山间回声 · Mountain Echoes'));
+            await tester.pumpAndSettle();
+            expect(find.textContaining('新的简介'), findsOneWidget);
+            await tester.tap(find.text('关闭'));
+            await tester.pumpAndSettle();
+            for (final type in [
+              ChangeType.added,
+              ChangeType.modified,
+              ChangeType.missing,
+              ChangeType.restored
+            ]) {
+              await tester.tap(find.widgetWithText(ChoiceChip, type.label));
+              await tester.pumpAndSettle();
+              expect(
+                  tester
+                      .widget<ChoiceChip>(
+                          find.widgetWithText(ChoiceChip, type.label))
+                      .selected,
+                  isTrue);
+              expect(tester.takeException(), isNull);
+            }
           }
         }
         expect(find.text('查询方式'), findsOneWidget);

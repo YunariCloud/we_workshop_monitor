@@ -15,6 +15,7 @@ import 'workshop_database.dart';
 import 'workshop_models.dart';
 import 'workshop_preview.dart';
 import 'workspace_widgets.dart';
+import 'workshop_timeline.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -384,6 +385,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                         ? Theme.of(context).colorScheme.secondaryContainer
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(compact ? 20 : 16),
+                    clipBehavior: Clip.antiAlias,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(20),
                       onTap: () => _selectWorkspace(i),
@@ -512,6 +514,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     final scheme = Theme.of(context).colorScheme;
     final archive = WorkspaceSurface(
         tonal: true,
+        onTap: () => _selectWorkspace(1),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Icon(Icons.inventory_2_outlined, size: 20),
@@ -587,23 +590,11 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                   child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                      Expanded(
-                          flex: 3,
-                          child: InkWell(
-                              onTap: () => _selectWorkspace(1),
-                              borderRadius: BorderRadius.circular(24),
-                              child: archive)),
+                      Expanded(flex: 3, child: archive),
                       SizedBox(width: 16),
                       Expanded(flex: 2, child: connection)
                     ]))
-              : Column(children: [
-                  InkWell(
-                      onTap: () => _selectWorkspace(1),
-                      borderRadius: BorderRadius.circular(24),
-                      child: archive),
-                  SizedBox(height: 16),
-                  connection
-                ])),
+              : Column(children: [archive, SizedBox(height: 16), connection])),
       SizedBox(height: 28),
       Row(children: [
         Text('创作者',
@@ -963,35 +954,21 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   Widget _buildFilterTabPill({
     required String label,
     required bool isSelected,
-    required Color accent,
     required VoidCallback onTap,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: 160),
-        padding: EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-        decoration: BoxDecoration(
-          color:
-              isSelected ? accent.withValues(alpha: 0.2) : AppPalette.bgInput,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected ? accent : AppPalette.borderSubtle,
-            width: isSelected ? 1.3 : 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-            color: isSelected ? accent : AppPalette.textSecondary,
-          ),
-        ),
-      ),
-    );
-  }
+  }) =>
+      ChoiceChip(
+        label: Text(label),
+        labelStyle: TextStyle(
+            fontFamily: 'Microsoft YaHei',
+            fontSize: 12,
+            color: isSelected
+                ? Theme.of(context).colorScheme.onSecondaryContainer
+                : Theme.of(context).colorScheme.onSurface),
+        selected: isSelected,
+        showCheckmark: false,
+        clipBehavior: Clip.antiAlias,
+        onSelected: (_) => onTap(),
+      );
 
   // ==========================================================================
   // 作品时光机可视化对比弹窗 (Visual Diff & Multi-Cover Time Machine Modal)
@@ -1296,7 +1273,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                             ),
                             SizedBox(width: 8),
                             Text(
-                              '时光机变更历史记录 (Before / After 字段对比)',
+                              '变更历史',
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
@@ -1305,8 +1282,14 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                           ],
                         ),
                         SizedBox(height: 10),
-                        for (final log in historyLogs)
-                          _buildVisualDiffLogCard(log),
+                        for (var i = 0; i < historyLogs.length; i++)
+                          WorkshopTimelineEntry(
+                              log: historyLogs[i],
+                              title: item.title,
+                              isFirst: i == 0,
+                              isLast: i == historyLogs.length - 1,
+                              onTap: () => _showChangeDetails(
+                                  historyLogs[i], item.title)),
                       ],
                     ),
                   ),
@@ -1353,6 +1336,22 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     );
   }
 
+  Future<void> _showChangeDetails(ItemChangeLog log, String title) =>
+      showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+                title:
+                    Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                content: SizedBox(
+                    width: 720,
+                    child: SingleChildScrollView(
+                        child: _buildVisualDiffLogCard(log))),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx), child: Text('关闭'))
+                ],
+              ));
+
   /// 将变更日志渲染为直观的“修改前 vs 修改后”视觉卡片
   Widget _buildVisualDiffLogCard(ItemChangeLog log) {
     final fields = log.changedFields;
@@ -1397,7 +1396,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                           '修改前：$oldVal',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Color(0xFFFDA4AF),
+                            color: AppPalette.textPrimary,
                           ),
                         ),
                       ),
@@ -1425,7 +1424,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                           '修改后：$newVal',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Color(0xFF6EE7B7),
+                            color: AppPalette.textPrimary,
                           ),
                         ),
                       ),
@@ -1465,11 +1464,11 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         children: [
           Row(
             children: [
-              Icon(log.changeType.icon, size: 17, color: log.changeType.color),
+              Icon(log.changeType.icon, size: 17, color: AppPalette.accentCyan),
               SizedBox(width: 8),
               _buildStatusPill(
                 label: log.changeType.label,
-                color: log.changeType.color,
+                color: AppPalette.accentCyan,
               ),
               SizedBox(width: 10),
               Text(
@@ -1477,14 +1476,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 style: TextStyle(
                   fontSize: 12,
                   color: AppPalette.textSecondary,
-                ),
-              ),
-              Spacer(),
-              Text(
-                '批次: ${log.syncBatchId}',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppPalette.textMuted,
                 ),
               ),
             ],
@@ -1506,11 +1497,11 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         children: [
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
               _buildFilterTabPill(
                 label: '全部事件',
                 isSelected: _logTypeFilter == null,
-                accent: AppPalette.accentCyan,
                 onTap: () {
                   setState(() => _logTypeFilter = null);
                   _refreshData();
@@ -1525,7 +1516,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 _buildFilterTabPill(
                   label: t.label,
                   isSelected: _logTypeFilter == t,
-                  accent: t.color,
                   onTap: () {
                     setState(() => _logTypeFilter = t);
                     _refreshData();
@@ -1545,94 +1535,28 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                     itemCount: _logs.length,
                     itemBuilder: (context, idx) {
                       final log = _logs[idx];
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: 4),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // 左侧时间轴节点线
-                            Column(
-                              children: [
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: log.changeType.color
-                                        .withValues(alpha: 0.16),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: log.changeType.color,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    log.changeType.icon,
-                                    size: 16,
-                                    color: log.changeType.color,
-                                  ),
-                                ),
-                                if (idx < _logs.length - 1)
-                                  Container(
-                                    width: 2,
-                                    height: 64,
-                                    color: AppPalette.borderSubtle,
-                                  ),
-                              ],
-                            ),
-                            SizedBox(width: 16),
-                            Expanded(
-                              child: Card(
-                                margin: EdgeInsets.only(bottom: 12),
-                                child: Padding(
-                                  padding: EdgeInsets.all(14),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          _buildStatusPill(
-                                            label: log.changeType.label,
-                                            color: log.changeType.color,
-                                          ),
-                                          SizedBox(width: 10),
-                                          Text(
-                                            '作品 ID: ${log.publishedFileId}',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 13.5,
-                                            ),
-                                          ),
-                                          SizedBox(width: 12),
-                                          Text(
-                                            '创作者: ${log.creatorSteamId}',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: AppPalette.textSecondary,
-                                            ),
-                                          ),
-                                          Spacer(),
-                                          Text(
-                                            log.detectedAt
-                                                .toLocal()
-                                                .toString()
-                                                .substring(0, 19),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: AppPalette.textMuted,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      SizedBox(height: 6),
-                                      _buildVisualDiffLogCard(log),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                      String? title;
+                      for (final item in _items) {
+                        if (item.publishedFileId == log.publishedFileId) {
+                          title = item.title;
+                          break;
+                        }
+                      }
+                      final savedTitle = log.changedFields['title'];
+                      title ??= savedTitle is String
+                          ? savedTitle
+                          : savedTitle is Map
+                              ? (savedTitle['new'] ?? savedTitle['old'])
+                                  ?.toString()
+                              : null;
+                      title ??=
+                          log.changedFields['last_known_title']?.toString();
+                      return WorkshopTimelineEntry(
+                        log: log,
+                        title: title ?? '作品 ${log.publishedFileId}',
+                        isFirst: idx == 0,
+                        isLast: idx == _logs.length - 1,
+                        onTap: () => _showChangeDetails(log, title ?? '作品变更详情'),
                       );
                     },
                   ),
@@ -2384,7 +2308,10 @@ class _WorkshopGalleryHoverCardState extends State<_WorkshopGalleryHoverCard> {
           clipBehavior: Clip.antiAlias,
           child: Material(
               color: Colors.transparent,
+              borderRadius: BorderRadius.circular(24),
+              clipBehavior: Clip.antiAlias,
               child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
                   onTap: widget.onTap,
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -56,10 +56,21 @@ ThemeData buildWorkshopTheme() {
         bodyColor: AppPalette.textPrimary,
         displayColor: AppPalette.textPrimary),
     dividerColor: AppPalette.borderSubtle,
+    chipTheme: base.chipTheme.copyWith(
+      color: WidgetStateColor.resolveWith((states) =>
+          states.contains(WidgetState.selected)
+              ? scheme.secondaryContainer
+              : AppPalette.bgInput),
+      labelStyle: TextStyle(
+          fontFamily: 'Microsoft YaHei', fontSize: 12, color: scheme.onSurface),
+      side: BorderSide(color: AppPalette.borderSubtle),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
     cardTheme: CardThemeData(
         color: AppPalette.bgCard,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        clipBehavior: Clip.antiAlias,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),

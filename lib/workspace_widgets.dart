@@ -7,24 +7,30 @@ class WorkspaceSurface extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final bool tonal;
+  final VoidCallback? onTap;
   const WorkspaceSurface(
       {super.key,
       required this.child,
       this.padding = const EdgeInsets.all(24),
-      this.tonal = false});
+      this.tonal = false,
+      this.onTap});
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: tonal
-              ? Theme.of(context).colorScheme.secondaryContainer
-              : AppPalette.bgCard,
-          borderRadius: BorderRadius.circular(24),
-          border:
-              Border.all(color: AppPalette.borderSubtle.withValues(alpha: .65)),
-        ),
-        child: child,
+  Widget build(BuildContext context) => Material(
+        color: tonal
+            ? Theme.of(context).colorScheme.secondaryContainer
+            : AppPalette.bgCard,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(
+                color: AppPalette.borderSubtle.withValues(alpha: .65))),
+        clipBehavior: Clip.antiAlias,
+        child: onTap == null
+            ? Padding(padding: padding, child: child)
+            : InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(24),
+                child: Padding(padding: padding, child: child)),
       );
 }
 

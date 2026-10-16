@@ -142,6 +142,30 @@ void main() {
     expect(items, hasLength(2));
   });
 
+  test('complete history includes records beyond the default list limit',
+      () async {
+    await sync();
+    final batch = database.db.batch();
+    for (var i = 0; i < 305; i++) {
+      batch.insert('item_change_logs', {
+        'published_file_id': '1001',
+        'creator_steam_id': creator.steamId,
+        'sync_batch_id': 'history-$i',
+        'change_type': 'MODIFIED',
+        'changed_fields_json': jsonEncode({
+          'title': {'old': 'Before', 'new': 'After'}
+        }),
+        'detected_at':
+            DateTime.utc(2026).add(Duration(minutes: i)).toIso8601String(),
+      });
+    }
+    await batch.commit(noResult: true);
+    expect(await database.getChangeLogs(), hasLength(300));
+    expect(await database.getChangeLogs(limit: -1), hasLength(307));
+    expect(await database.getChangeLogs(publishedFileId: '1001', limit: -1),
+        hasLength(306));
+  });
+
   test('a new workspace never preloads a fixed creator', () async {
     final fresh = await WorkshopDatabase.initialize(
         dataRootDirOverride: p.join(temporary.path, 'fresh'));

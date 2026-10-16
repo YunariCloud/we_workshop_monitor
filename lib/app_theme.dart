@@ -89,8 +89,8 @@ ThemeData buildWorkshopTheme() {
         enabledBorder: outline,
         focusedBorder: outline.copyWith(
             borderSide: BorderSide(color: AppPalette.accentCyan)),
-        labelStyle: TextStyle(color: AppPalette.textSecondary, fontSize: 13),
-        hintStyle: TextStyle(color: AppPalette.textMuted, fontSize: 13)),
+        labelStyle: TextStyle(color: AppPalette.textSecondary, fontSize: 14),
+        hintStyle: TextStyle(color: AppPalette.textMuted, fontSize: 14)),
     filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
             minimumSize: const Size(0, 40),
@@ -100,7 +100,7 @@ ThemeData buildWorkshopTheme() {
             textStyle: const TextStyle(
                 fontFamily: 'Roboto',
                 fontFamilyFallback: ['Microsoft YaHei UI'],
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: FontWeight.w500))),
     outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(

@@ -98,7 +98,13 @@ class PreviewDatabase implements WorkshopDatabase {
             changeType: ChangeType.modified,
             changedFields: {
               'title': {'old': '旧作品名', 'new': '山间回声 · Mountain Echoes'},
-              'description': {'old': '旧的简介', 'new': '新的简介，仅在详情显示'}
+              'description': {'old': '旧的简介', 'new': '新的简介，仅在详情显示'},
+              'preview_local_path': {
+                'old': 'previews/private-old.png',
+                'new': 'previews/private-new.png'
+              },
+              'preview_url': 'https://example.com/private-image.png',
+              'verified_by': 'internal API'
             },
             detectedAt: DateTime(2026, 10, 16, 12)),
         ItemChangeLog(
@@ -108,6 +114,13 @@ class PreviewDatabase implements WorkshopDatabase {
             changeType: ChangeType.added,
             changedFields: {'title': '浮光之城'},
             detectedAt: DateTime(2026, 10, 16, 11)),
+        ItemChangeLog(
+            publishedFileId: '3300000000',
+            creatorSteamId: '76561198000000000',
+            syncBatchId: 'test-batch',
+            changeType: ChangeType.added,
+            changedFields: {'title': '另一位作者的作品'},
+            detectedAt: DateTime(2026, 10, 16, 13)),
         ItemChangeLog(
             publishedFileId: '3200000004',
             creatorSteamId: '76561199182487944',
@@ -126,6 +139,18 @@ class PreviewDatabase implements WorkshopDatabase {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
+
+Future<void> saveHistoryPreview(
+        WidgetTester tester, GlobalKey key, String name) =>
+    tester.runAsync(() async {
+      final image = await (key.currentContext!.findRenderObject()!
+              as RenderRepaintBoundary)
+          .toImage();
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      await File('.dart_tool/ui-preview/$name.png')
+          .writeAsBytes(bytes!.buffer.asUint8List());
+      image.dispose();
+    }).then((_) {});
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -227,6 +252,14 @@ void main() {
               scrollable: find.byType(Scrollable).first);
         }
         expect(find.text('云烟'), findsOneWidget);
+        expect(tester.getTopLeft(find.text('已归档作品').first).dx,
+            tester.getTopLeft(find.text('已归档作品').last).dx);
+        expect(tester.getTopLeft(find.text('2026-10-16 10:30')).dx,
+            tester.getTopLeft(find.text('尚未同步')).dx);
+        expect(tester.getTopLeft(find.text('已归档作品').first).dy,
+            tester.getTopLeft(find.text('2026-10-16 10:30')).dy);
+        expect(tester.widget<Text>(find.text('456').last).style!.fontSize,
+            tester.widget<Text>(find.text('已建立档案')).style!.fontSize);
 
         if (const bool.fromEnvironment('SAVE_UI_PREVIEW') &&
             size.width == 1440) {
@@ -352,11 +385,39 @@ void main() {
             await tester.pumpAndSettle();
           }
           if (label == '变更记录') {
-            expect(find.textContaining('新的简介'), findsNothing);
-            expect(find.textContaining('test-batch'), findsNothing);
+            expect(find.text('云烟'), findsOneWidget);
+            expect(find.text('Moonlight Studio · 长名称创作者作品集'), findsOneWidget);
+            await tester.tap(find.text('云烟'));
+            await tester.pumpAndSettle();
+            expect(find.text('另一位作者的作品'), findsNothing);
+            expect(find.text('新增 1 件 · 修改 1 件 · 下架 1 件'), findsOneWidget);
+            if (const bool.fromEnvironment('SAVE_UI_PREVIEW') &&
+                size.width == 1440) {
+              await saveHistoryPreview(
+                  tester, preview, 'history-author-${dark ? 'dark' : 'light'}');
+            }
+            await tester.tap(find.text('新增 1 件 · 修改 1 件 · 下架 1 件'));
+            await tester.pumpAndSettle();
+            // A mature work remains visible in history while the gallery is safe-only.
+            expect(find.text('Orbital'), findsOneWidget);
+            expect(find.text('另一位作者的作品'), findsNothing);
             await tester.tap(find.text('山间回声 · Mountain Echoes'));
             await tester.pumpAndSettle();
+            expect(find.text('Orbital'), findsNothing);
+            expect(find.text('浮光之城'), findsNothing);
+            if (const bool.fromEnvironment('SAVE_UI_PREVIEW') &&
+                size.width == 1440) {
+              await saveHistoryPreview(
+                  tester, preview, 'history-work-${dark ? 'dark' : 'light'}');
+            }
+            await tester.tap(find.text('山间回声 · Mountain Echoes').last);
+            await tester.pumpAndSettle();
             expect(find.textContaining('新的简介'), findsOneWidget);
+            expect(find.textContaining('private-old.png'), findsNothing);
+            expect(find.textContaining('private-new.png'), findsNothing);
+            expect(find.textContaining('https://example.com'), findsNothing);
+            expect(find.textContaining('internal API'), findsNothing);
+            expect(find.text('封面已更新'), findsOneWidget);
             await tester.tap(find.text('关闭'));
             await tester.pumpAndSettle();
             for (final type in [
@@ -375,6 +436,17 @@ void main() {
                   isTrue);
               expect(tester.takeException(), isNull);
             }
+            await tester.tap(find.text('返回作品列表'));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('所有创作者'));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('Moonlight Studio · 长名称创作者作品集'));
+            await tester.pumpAndSettle();
+            expect(find.text('新增 1 件'), findsOneWidget);
+            await tester.tap(find.text('作品时间线'));
+            await tester.pumpAndSettle();
+            expect(find.text('另一位作者的作品'), findsOneWidget);
+            expect(find.text('山间回声 · Mountain Echoes'), findsNothing);
           }
         }
         expect(find.text('查询方式'), findsOneWidget);

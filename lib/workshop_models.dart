@@ -47,7 +47,7 @@ enum ItemStatus {
 
 /// 变更日志事件类型枚举
 enum ChangeType {
-  baseline('BASELINE', '首次基线建档', Icons.inventory_2_outlined, Colors.blueGrey),
+  baseline('BASELINE', '首次建档', Icons.inventory_2_outlined, Colors.blueGrey),
   added('ADDED', '新增发布', Icons.add_circle_outline, Colors.greenAccent),
   modified('MODIFIED', '内容/封面修改', Icons.edit_note, Colors.amberAccent),
   missing('MISSING', '作品消失/下架', Icons.warning_amber_rounded, Colors.redAccent),

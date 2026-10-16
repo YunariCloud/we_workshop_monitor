@@ -18,6 +18,8 @@ import 'workshop_models.dart';
 import 'workshop_preview.dart';
 import 'workspace_widgets.dart';
 import 'workshop_timeline.dart';
+import 'workshop_history_view.dart';
+import 'workshop_change_details.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -66,7 +68,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   String? _selectedCreatorId;
   String _searchQuery = '';
   final double _galleryCardMaxExtent = 340;
-  ChangeType? _logTypeFilter;
 
   String _syncProgressBanner = '';
   bool _isBusy = false;
@@ -77,6 +78,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
 
   List<Creator> _creators = [];
   List<WorkshopItem> _items = [];
+  List<WorkshopItem> _archiveItems = [];
   List<ItemChangeLog> _logs = [];
   List<BackupRecord> _backupRecords = [];
   AppSettings _settings = AppSettings();
@@ -176,13 +178,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       onlyModified: _onlyModifiedFilter,
     );
     final allItems = await widget.database.queryItems();
-    final ratingById = {
-      for (final item in allItems) item.publishedFileId: item.contentRating
-    };
-    final logs = await widget.database.getChangeLogs(
-      creatorSteamId: _selectedCreatorId,
-      changeTypeFilter: _logTypeFilter,
-    );
+    final logs = await widget.database.getChangeLogs(limit: -1);
     final backups = await widget.database.getBackupRecords();
 
     if (!mounted) return;
@@ -191,10 +187,8 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       _items = items
           .where((item) => _visibleRatings.contains(item.contentRating))
           .toList();
-      _logs = logs
-          .where((log) => _visibleRatings.contains(
-              ratingById[log.publishedFileId] ?? ContentRating.unrated))
-          .toList();
+      _archiveItems = allItems;
+      _logs = logs;
       _backupRecords = backups;
     });
   }
@@ -478,14 +472,14 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                                   Icon(icons[i], size: 23),
                                   SizedBox(height: 5),
                                   Text(['概览', '作品', '动态', '设置'][i],
-                                      style: TextStyle(fontSize: 10)),
+                                      style: TextStyle(fontSize: 12)),
                                 ])
                               : Row(children: [
                                   Icon(icons[i], size: 22),
                                   SizedBox(width: 14),
                                   Text(i == 0 ? '概览' : labels[i],
                                       style: TextStyle(
-                                          fontSize: 13,
+                                          fontSize: 14,
                                           fontWeight: _selectedNavIndex == i
                                               ? FontWeight.w600
                                               : FontWeight.w400)),
@@ -502,7 +496,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         SizedBox(height: 10),
         if (!compact)
           Text('Wallpaper Engine · 本地档案',
-              style: TextStyle(fontSize: 10, color: AppPalette.textMuted)),
+              style: TextStyle(fontSize: 12, color: AppPalette.textMuted)),
         SizedBox(height: 24),
       ]),
     );
@@ -593,7 +587,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
             child: Text(
               _syncProgressBanner,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: FontWeight.w500,
                 color: AppPalette.textPrimary,
               ),
@@ -737,7 +731,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         SizedBox(width: 8),
         Expanded(
             child: Text('作品信息与历史预览图保存在本机',
-                style: TextStyle(fontSize: 11, color: AppPalette.textMuted)))
+                style: TextStyle(fontSize: 12, color: AppPalette.textMuted)))
       ]),
     ]);
   }
@@ -802,11 +796,13 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
             icon: Icon(Icons.grid_view_rounded, size: 16),
             label: Text('查看作品'),
           ),
-          FilledButton.tonalIcon(
-            onPressed: _isBusy ? null : () => _triggerCreatorSync(creator),
-            icon: Icon(Icons.sync, size: 17),
-            label: Text(creator.isBaselineCompleted ? '同步' : '建立档案'),
-          ),
+          SizedBox(
+              width: 116,
+              child: FilledButton.tonalIcon(
+                onPressed: _isBusy ? null : () => _triggerCreatorSync(creator),
+                icon: Icon(Icons.sync, size: 17),
+                label: Text(creator.isBaselineCompleted ? '同步' : '建立档案'),
+              )),
           PopupMenuButton<String>(
             tooltip: '更多操作',
             onSelected: (value) async {
@@ -872,42 +868,58 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppPalette.textPrimary)),
-        SizedBox(height: 7),
-        Text(creator.steamId,
-            style: TextStyle(fontSize: 11, color: AppPalette.textMuted)),
       ])),
     ]);
-    final metrics = Row(mainAxisSize: MainAxisSize.min, children: [
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('${creator.totalActiveCount + creator.totalMissingCount}',
-            style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppPalette.textPrimary)),
-        SizedBox(height: 4),
-        Text('已归档作品',
-            style: TextStyle(fontSize: 10, color: AppPalette.textMuted)),
-      ]),
-      SizedBox(width: 28),
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(Icons.circle,
-              size: 6,
-              color: creator.isBaselineCompleted
-                  ? AppPalette.statusActive
-                  : AppPalette.statusModified),
-          SizedBox(width: 6),
-          Text(creator.isBaselineCompleted ? '已建立档案' : '等待同步',
-              style: TextStyle(fontSize: 11, color: AppPalette.textSecondary))
-        ]),
-        SizedBox(height: 5),
-        Text(
-            creator.lastSyncedAt == null
-                ? '尚未同步'
-                : creator.lastSyncedAt!.toLocal().toString().substring(0, 16),
-            style: TextStyle(fontSize: 10, color: AppPalette.textMuted)),
-      ]),
-    ]);
+    Widget metric(Widget value, String caption, {double indent = 0}) =>
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(
+              height: 22,
+              child: Align(alignment: Alignment.centerLeft, child: value)),
+          SizedBox(height: 4),
+          Padding(
+              padding: EdgeInsets.only(left: indent),
+              child: Text(caption,
+                  style: TextStyle(
+                      fontSize: 12,
+                      height: 1.4,
+                      color: AppPalette.textSecondary))),
+        ]);
+    final metrics = Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+              width: 84,
+              child: metric(
+                  Text(
+                      '${creator.totalActiveCount + creator.totalMissingCount}',
+                      style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          fontWeight: FontWeight.w600)),
+                  '已归档作品')),
+          SizedBox(width: 24),
+          SizedBox(
+              width: 142,
+              child: metric(
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.circle,
+                        size: 6,
+                        color: creator.isBaselineCompleted
+                            ? AppPalette.statusActive
+                            : AppPalette.statusModified),
+                    SizedBox(width: 6),
+                    Text(creator.isBaselineCompleted ? '已建立档案' : '等待同步',
+                        style: TextStyle(fontSize: 14, height: 1.4)),
+                  ]),
+                  creator.lastSyncedAt == null
+                      ? '尚未同步'
+                      : creator.lastSyncedAt!
+                          .toLocal()
+                          .toString()
+                          .substring(0, 16),
+                  indent: 12)),
+        ]);
     return Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(10),
@@ -949,7 +961,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       child: Text(
         label,
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: FontWeight.w600,
           color: color,
         ),
@@ -1102,32 +1114,13 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         ]));
   }
 
-  Widget _buildFilterTabPill({
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) =>
-      ChoiceChip(
-        label: Text(label),
-        labelStyle: TextStyle(
-            fontFamily: 'Roboto',
-            fontFamilyFallback: ['Microsoft YaHei UI'],
-            fontSize: 12,
-            color: isSelected
-                ? Theme.of(context).colorScheme.onSecondaryContainer
-                : Theme.of(context).colorScheme.onSurface),
-        selected: isSelected,
-        showCheckmark: false,
-        clipBehavior: Clip.antiAlias,
-        onSelected: (_) => onTap(),
-      );
-
   // ==========================================================================
   // 作品时光机可视化对比弹窗 (Visual Diff & Multi-Cover Time Machine Modal)
   // ==========================================================================
   Future<void> _showItemTimeMachineDialog(WorkshopItem item) async {
     final historyLogs = await widget.database.getChangeLogs(
       publishedFileId: item.publishedFileId,
+      limit: -1,
     );
     if (!mounted) return;
 
@@ -1191,7 +1184,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                           ),
                           SizedBox(height: 3),
                           Text(
-                            'PublishedFileID: ${item.publishedFileId}  ·  创作者 SteamID: ${item.creatorSteamId}  ·  大小: ${item.formattedFileSize}',
+                            '${item.formattedFileSize} · ${item.contentRating.label}',
                             style: TextStyle(
                               fontSize: 12,
                               color: AppPalette.textSecondary,
@@ -1231,7 +1224,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                               ),
                               SizedBox(width: 8),
                               Text(
-                                '本地归档预览图时光机 (${historicalPreviewPaths.length} 个历史封面版本)',
+                                '封面历史 · ${historicalPreviewPaths.length} 个版本',
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w700,
@@ -1322,7 +1315,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                                         child: Text(
                                           '该作品已于 ${item.disappearedAt!.toLocal().toString().substring(0, 19)} 从创意工坊消失/下架，本地已完整锁定其最后已知元数据与预览图。',
                                           style: TextStyle(
-                                            fontSize: 12.5,
+                                            fontSize: 12,
                                             color: AppPalette.statusMissing,
                                             fontWeight: FontWeight.w600,
                                           ),
@@ -1350,7 +1343,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                                       child: Text(
                                         '#$tag',
                                         style: TextStyle(
-                                          fontSize: 11.5,
+                                          fontSize: 12,
                                           color: AppPalette.accentCyan,
                                         ),
                                       ),
@@ -1359,7 +1352,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                               ),
                               SizedBox(height: 12),
                               Text(
-                                '作品简介 (Description)：',
+                                '作品简介',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
@@ -1372,7 +1365,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                                     ? '（作者未填写简介）'
                                     : item.description,
                                 style: TextStyle(
-                                  fontSize: 13,
+                                  fontSize: 14,
                                   height: 1.5,
                                   color: AppPalette.textPrimary,
                                 ),
@@ -1465,219 +1458,19 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 ],
               ));
 
-  /// 将变更日志渲染为直观的“修改前 vs 修改后”视觉卡片
-  Widget _buildVisualDiffLogCard(ItemChangeLog log) {
-    final fields = log.changedFields;
-    final diffRows = <Widget>[];
-
-    fields.forEach((fieldKey, value) {
-      if (value is Map &&
-          (value.containsKey('old') || value.containsKey('new'))) {
-        final oldVal = value['old']?.toString() ?? '（空）';
-        final newVal = value['new']?.toString() ?? '（空）';
-        diffRows.add(
-          Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '字段变更：$fieldKey',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppPalette.textSecondary,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color:
-                              AppPalette.statusMissing.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color:
-                                AppPalette.statusMissing.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Text(
-                          '修改前：$oldVal',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppPalette.textPrimary,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      child: Icon(
-                        Icons.arrow_forward,
-                        size: 15,
-                        color: AppPalette.textMuted,
-                      ),
-                    ),
-                    Expanded(
-                      child: Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppPalette.statusActive.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color:
-                                AppPalette.statusActive.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Text(
-                          '修改后：$newVal',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppPalette.textPrimary,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      } else {
-        diffRows.add(
-          Padding(
-            padding: EdgeInsets.only(top: 4),
-            child: Text(
-              '$fieldKey: $value',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppPalette.textSecondary,
-              ),
-            ),
-          ),
-        );
-      }
-    });
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 10),
-      padding: EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppPalette.bgCanvas,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppPalette.borderSubtle),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(log.changeType.icon, size: 17, color: AppPalette.accentCyan),
-              SizedBox(width: 8),
-              _buildStatusPill(
-                label: log.changeType.label,
-                color: AppPalette.accentCyan,
-              ),
-              SizedBox(width: 10),
-              Text(
-                log.detectedAt.toLocal().toString().substring(0, 19),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppPalette.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          ...diffRows,
-        ],
-      ),
-    );
-  }
+  Widget _buildVisualDiffLogCard(ItemChangeLog log) =>
+      WorkshopChangeDetails(log: log);
 
   // ==========================================================================
   // 视图 3：变更与下架告警时间轴 (Git 风格垂直时间轴视图)
   // ==========================================================================
-  Widget _buildChangeLogView() {
-    return Padding(
-      padding: EdgeInsets.all(28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildFilterTabPill(
-                label: '全部事件',
-                isSelected: _logTypeFilter == null,
-                onTap: () {
-                  setState(() => _logTypeFilter = null);
-                  _refreshData();
-                },
-              ),
-              for (final t in [
-                ChangeType.added,
-                ChangeType.modified,
-                ChangeType.missing,
-                ChangeType.restored,
-              ])
-                _buildFilterTabPill(
-                  label: t.label,
-                  isSelected: _logTypeFilter == t,
-                  onTap: () {
-                    setState(() => _logTypeFilter = t);
-                    _refreshData();
-                  },
-                ),
-            ],
-          ),
-          SizedBox(height: 20),
-          Expanded(
-            child: _logs.isEmpty
-                ? _buildEmptyStateCard(
-                    icon: Icons.history_edu_outlined,
-                    title: '当前筛选条件下暂无变更记录',
-                    subtitle: '当检测到创作者发布新作、修改作品信息或作品下架时，将自动在此处生成审计时间轴。',
-                  )
-                : ListView.builder(
-                    itemCount: _logs.length,
-                    itemBuilder: (context, idx) {
-                      final log = _logs[idx];
-                      String? title;
-                      for (final item in _items) {
-                        if (item.publishedFileId == log.publishedFileId) {
-                          title = item.title;
-                          break;
-                        }
-                      }
-                      final savedTitle = log.changedFields['title'];
-                      title ??= savedTitle is String
-                          ? savedTitle
-                          : savedTitle is Map
-                              ? (savedTitle['new'] ?? savedTitle['old'])
-                                  ?.toString()
-                              : null;
-                      title ??=
-                          log.changedFields['last_known_title']?.toString();
-                      return WorkshopTimelineEntry(
-                        log: log,
-                        title: title ?? '作品 ${log.publishedFileId}',
-                        isFirst: idx == 0,
-                        isLast: idx == _logs.length - 1,
-                        onTap: () => _showChangeDetails(log, title ?? '作品变更详情'),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildChangeLogView() => WorkshopHistoryView(
+        creators: _creators,
+        items: _archiveItems,
+        logs: _logs,
+        avatarBuilder: _creatorAvatar,
+        onShowDetails: _showChangeDetails,
+      );
 
   // ==========================================================================
   // 视图 4：本地备份与同步设置
@@ -1751,7 +1544,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                     }),
             ])),
         SizedBox(height: 20),
-        Text('每次启动仅显示安全内容。这里只控制作品库和变更记录的显示，同步与备份始终处理全部作品。未分级内容默认隐藏。',
+        Text('每次启动仅显示安全内容。分级只影响作品资料库，不影响变更记录、同步与备份。未分级作品默认隐藏。',
             style: TextStyle(color: AppPalette.textSecondary, height: 1.7)),
       ]);
     }
@@ -1952,10 +1745,10 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                   SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
-                      title: Text('变更后自动备份', style: TextStyle(fontSize: 13)),
+                      title: Text('变更后自动备份', style: TextStyle(fontSize: 14)),
                       subtitle: Text('需要先配置本地备份目录',
                           style: TextStyle(
-                              fontSize: 11, color: AppPalette.textMuted)),
+                              fontSize: 12, color: AppPalette.textMuted)),
                       value: _settings.autoBackupAfterChange,
                       onChanged: (value) => _persistSettings(
                           _settings.copyWith(autoBackupAfterChange: value))),
@@ -1963,7 +1756,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                       title:
-                          Text('关闭窗口时保留后台运行', style: TextStyle(fontSize: 13)),
+                          Text('关闭窗口时保留后台运行', style: TextStyle(fontSize: 14)),
                       value: _settings.minimizeToTrayOnClose,
                       onChanged: (value) => _persistSettings(
                           _settings.copyWith(minimizeToTrayOnClose: value))),
@@ -2145,7 +1938,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 12.5,
+                          fontSize: 12,
                           color: AppPalette.textPrimary,
                         ),
                       ),
@@ -2210,7 +2003,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
               subtitle,
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 12.5,
+                fontSize: 12,
                 color: AppPalette.textSecondary,
                 height: 1.5,
               ),
@@ -2481,7 +2274,7 @@ class _WorkshopGalleryHoverCardState extends State<_WorkshopGalleryHoverCard> {
                                         borderRadius: BorderRadius.circular(6)),
                                     child: Text(item.status.label,
                                         style: TextStyle(
-                                            fontSize: 10,
+                                            fontSize: 12,
                                             color: AppPalette.statusMissing)))),
                           if (_isHovered)
                             Positioned(
@@ -2501,24 +2294,14 @@ class _WorkshopGalleryHoverCardState extends State<_WorkshopGalleryHoverCard> {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                          fontSize: 13,
+                                          fontSize: 14,
                                           fontWeight: FontWeight.w600,
                                           color: AppPalette.textPrimary)),
                                   SizedBox(height: 7),
-                                  Row(children: [
-                                    Expanded(
-                                        child: Text(
-                                            '作品 ${item.publishedFileId}',
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                                fontSize: 10,
-                                                color: AppPalette.textMuted))),
-                                    SizedBox(width: 8),
-                                    Text(item.contentRating.label,
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            color: AppPalette.textSecondary))
-                                  ]),
+                                  Text(item.contentRating.label,
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppPalette.textSecondary)),
                                   SizedBox(height: 12),
                                   Row(children: [
                                     Icon(Icons.favorite_border_rounded,
@@ -2526,12 +2309,12 @@ class _WorkshopGalleryHoverCardState extends State<_WorkshopGalleryHoverCard> {
                                     SizedBox(width: 4),
                                     Text('${item.favoritesCount}',
                                         style: TextStyle(
-                                            fontSize: 11,
+                                            fontSize: 12,
                                             color: AppPalette.textSecondary)),
                                     Spacer(),
                                     Text(item.formattedFileSize,
                                         style: TextStyle(
-                                            fontSize: 10,
+                                            fontSize: 12,
                                             color: AppPalette.textMuted))
                                   ]),
                                 ])),

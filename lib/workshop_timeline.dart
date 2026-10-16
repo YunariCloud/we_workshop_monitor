@@ -11,12 +11,16 @@ class WorkshopTimelineEntry extends StatelessWidget {
   final bool isFirst;
   final bool isLast;
   final VoidCallback onTap;
+  final String? eventLabel;
+  final IconData? eventIcon;
   const WorkshopTimelineEntry(
       {super.key,
       required this.log,
       required this.title,
       required this.isFirst,
       required this.isLast,
+      this.eventLabel,
+      this.eventIcon,
       required this.onTap});
 
   @override
@@ -54,7 +58,7 @@ class WorkshopTimelineEntry extends StatelessWidget {
                     decoration: BoxDecoration(
                         color: scheme.secondaryContainer,
                         shape: BoxShape.circle),
-                    child: Icon(log.changeType.icon,
+                    child: Icon(eventIcon ?? log.changeType.icon,
                         size: 17, color: scheme.onSecondaryContainer))),
           ])),
       const SizedBox(width: 16),
@@ -68,7 +72,7 @@ class WorkshopTimelineEntry extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(children: [
-                          Text(log.changeType.label,
+                          Text(eventLabel ?? log.changeType.label,
                               style: TextStyle(
                                   fontSize: 12,
                                   color: AppPalette.textSecondary)),
@@ -79,7 +83,7 @@ class WorkshopTimelineEntry extends StatelessWidget {
                                   .toString()
                                   .substring(0, 16),
                               style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: AppPalette.textSecondary))
                         ]),
                         const SizedBox(height: 10),

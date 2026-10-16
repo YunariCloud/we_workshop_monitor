@@ -92,6 +92,7 @@ class BackupService {
 
     final stagingDir = await _prepareStagingExport();
     final previewsDir = Directory(p.join(database.dataRootDir, 'previews'));
+    final avatarsDir = Directory(p.join(database.dataRootDir, 'avatars'));
     final timestamp = DateTime.now()
         .toIso8601String()
         .replaceAll(RegExp(r'[:\-\.]'), '')
@@ -105,6 +106,9 @@ class BackupService {
         await encoder.addDirectory(stagingDir, includeDirName: false);
         if (previewsDir.existsSync()) {
           await encoder.addDirectory(previewsDir, includeDirName: true);
+        }
+        if (avatarsDir.existsSync()) {
+          await encoder.addDirectory(avatarsDir, includeDirName: true);
         }
       } finally {
         await encoder.close();
@@ -170,17 +174,17 @@ class BackupService {
       }
     }
 
-    // 增量拷贝新增预览图
-    final localPreviewsRoot =
-        Directory(p.join(database.dataRootDir, 'previews'));
-    if (await localPreviewsRoot.exists()) {
-      await for (final entity in localPreviewsRoot.list(recursive: true)) {
+    // Cache filenames include a content hash, so existing files remain valid.
+    for (final folder in ['previews', 'avatars']) {
+      final sourceRoot = Directory(p.join(database.dataRootDir, folder));
+      if (!await sourceRoot.exists()) continue;
+      await for (final entity in sourceRoot.list(recursive: true)) {
         if (entity is File) {
-          final relPath = p.relative(entity.path, from: localPreviewsRoot.path);
-          final targetFile = File(p.join(mirrorPreviews.path, relPath));
-          if (!await targetFile.exists()) {
-            await targetFile.parent.create(recursive: true);
-            await entity.copy(targetFile.path);
+          final target = File(p.join(mirrorRoot.path, folder,
+              p.relative(entity.path, from: sourceRoot.path)));
+          if (!await target.exists()) {
+            await target.parent.create(recursive: true);
+            await entity.copy(target.path);
             copiedFiles++;
           }
         }

@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:ui' as ui;
+import 'package:flutter/rendering.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,6 +34,7 @@ class WorkshopMonitorApp extends StatelessWidget {
         builder: (context, mode, _) => MaterialApp(
             title: '工坊档案 · Workshop Library',
             debugShowCheckedModeBanner: false,
+            themeAnimationDuration: Duration.zero,
             theme: buildWorkshopTheme(),
             home: MainDesktopShell(database: database)),
       );
@@ -51,6 +54,13 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   static final _kSteamApiKeyStorageKey = 'we_monitor_steam_api_key';
 
   int _selectedNavIndex = 0;
+  String? _settingsPage;
+  int _settingsReturnNav = 3;
+  bool _choosingCreator = false;
+  final Set<ContentRating> _visibleRatings = {ContentRating.safe};
+  final _workspaceCaptureKey = GlobalKey();
+  ui.Image? _previousThemeFrame;
+  bool _switchingTheme = false;
   ItemStatus? _galleryStatusFilter;
   bool _onlyModifiedFilter = false;
   String? _selectedCreatorId;
@@ -102,7 +112,8 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       initialSettings: _settings,
       onBackgroundSyncEvent: (bannerMsg) async {
         if (!mounted) return;
-        setState(() => _syncProgressBanner = bannerMsg);
+        setState(() => _syncProgressBanner =
+            bannerMsg.replaceAll(RegExp('《[^》]*》'), '作品'));
         await _refreshData();
       },
     );
@@ -144,6 +155,8 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
 
   Future<void> _persistSettings(AppSettings updated) async {
     setState(() => _settings = updated);
+    appThemeMode.value =
+        updated.useDarkTheme ? ThemeMode.dark : ThemeMode.light;
     await widget.database.saveConfigJson(updated.toNonSensitiveJson());
     try {
       await _secureStorage.write(
@@ -151,8 +164,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         value: updated.steamApiKey,
       );
     } catch (_) {}
-    appThemeMode.value =
-        updated.useDarkTheme ? ThemeMode.dark : ThemeMode.light;
     _schedulerTrayService.applyPollingSchedule(updated);
   }
 
@@ -164,6 +175,10 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       searchQuery: _searchQuery,
       onlyModified: _onlyModifiedFilter,
     );
+    final allItems = await widget.database.queryItems();
+    final ratingById = {
+      for (final item in allItems) item.publishedFileId: item.contentRating
+    };
     final logs = await widget.database.getChangeLogs(
       creatorSteamId: _selectedCreatorId,
       changeTypeFilter: _logTypeFilter,
@@ -173,8 +188,13 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     if (!mounted) return;
     setState(() {
       _creators = creators;
-      _items = items;
-      _logs = logs;
+      _items = items
+          .where((item) => _visibleRatings.contains(item.contentRating))
+          .toList();
+      _logs = logs
+          .where((log) => _visibleRatings.contains(
+              ratingById[log.publishedFileId] ?? ContentRating.unrated))
+          .toList();
       _backupRecords = backups;
     });
   }
@@ -203,7 +223,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       if (report.isBaselineRun && mounted) {
         setState(() {
           _selectedNavIndex = 1;
-          _selectedCreatorId = creator.steamId;
+          _selectedCreatorId = null;
           _galleryStatusFilter = null;
           _onlyModifiedFilter = false;
           _searchQuery = '';
@@ -211,6 +231,9 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         });
       }
       await _refreshData();
+      try {
+        await _refreshCreatorAvatar(creator);
+      } catch (_) {}
       String? backupWarning;
       if (report.hasAnyChange &&
           _settings.autoBackupAfterChange &&
@@ -291,6 +314,8 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
 
   @override
   void dispose() {
+    _previousThemeFrame?.dispose();
+    _previousThemeFrame = null;
     _searchCtrl.dispose();
     _apiKeyCtrl.dispose();
     _localDirCtrl.dispose();
@@ -305,7 +330,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     final totalMissing =
         _creators.fold<int>(0, (sum, c) => sum + c.totalMissingCount);
 
-    return Scaffold(
+    final workspace = Scaffold(
       body: Row(
         children: [
           if (MediaQuery.sizeOf(context).width >= 1200)
@@ -338,10 +363,66 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         ],
       ),
     );
+    return Stack(fit: StackFit.expand, children: [
+      RepaintBoundary(key: _workspaceCaptureKey, child: workspace),
+      if (_previousThemeFrame != null)
+        IgnorePointer(
+            child: TweenAnimationBuilder<double>(
+          key: ValueKey(_previousThemeFrame),
+          tween: Tween(begin: 1, end: 0),
+          duration: Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+          onEnd: () {
+            final frame = _previousThemeFrame;
+            if (mounted) {
+              setState(() {
+                _previousThemeFrame = null;
+                _switchingTheme = false;
+              });
+            }
+            WidgetsBinding.instance
+                .addPostFrameCallback((_) => frame?.dispose());
+          },
+          builder: (_, opacity, child) =>
+              Opacity(opacity: opacity, child: child),
+          child: RawImage(image: _previousThemeFrame, fit: BoxFit.fill),
+        )),
+    ]);
+  }
+
+  Future<void> _changeTheme(bool dark) async {
+    if (_switchingTheme || dark == AppPalette.dark) return;
+    _switchingTheme = true;
+    final boundary = _workspaceCaptureKey.currentContext?.findRenderObject()
+        as RenderRepaintBoundary?;
+    ui.Image? frame;
+    try {
+      frame = await boundary?.toImage(
+          pixelRatio: MediaQuery.devicePixelRatioOf(context));
+    } catch (_) {}
+    if (!mounted) {
+      frame?.dispose();
+      return;
+    }
+    setState(() => _previousThemeFrame = frame);
+    await _persistSettings(_settings.copyWith(useDarkTheme: dark));
+    if (frame == null) _switchingTheme = false;
+  }
+
+  void _openSettingsPage(String page, {int returnNav = 3}) {
+    setState(() {
+      _settingsPage = page;
+      _settingsReturnNav = returnNav;
+      _selectedNavIndex = 3;
+    });
   }
 
   void _selectWorkspace(int index) {
-    setState(() => _selectedNavIndex = index);
+    setState(() {
+      _selectedNavIndex = index;
+      _settingsPage = null;
+      _choosingCreator = false;
+    });
     _refreshData();
   }
 
@@ -414,8 +495,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         Spacer(),
         IconButton(
             tooltip: AppPalette.dark ? '切换浅色主题' : '切换深色主题',
-            onPressed: () => _persistSettings(
-                _settings.copyWith(useDarkTheme: !AppPalette.dark)),
+            onPressed: () => _changeTheme(!AppPalette.dark),
             icon: Icon(AppPalette.dark
                 ? Icons.light_mode_outlined
                 : Icons.dark_mode_outlined)),
@@ -433,7 +513,30 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     return Padding(
       padding: EdgeInsets.fromLTRB(28, 22, 28, 8),
       child: Row(children: [
-        Text(titles[_selectedNavIndex],
+        if (_settingsPage != null || _choosingCreator) ...[
+          IconButton(
+              tooltip: '返回',
+              icon: Icon(Icons.arrow_back_rounded),
+              onPressed: () => setState(() {
+                    if (_settingsPage != null) {
+                      _settingsPage = null;
+                      _selectedNavIndex = _settingsReturnNav;
+                    }
+                    _choosingCreator = false;
+                  })),
+          SizedBox(width: 8),
+        ],
+        Text(
+            _selectedNavIndex == 3 && _settingsPage != null
+                ? {
+                    'query': '作品查询与同步',
+                    'backup': '本地备份',
+                    'appearance': '外观',
+                    'content': '内容分级'
+                  }[_settingsPage]!
+                : _choosingCreator
+                    ? '选择创作者'
+                    : titles[_selectedNavIndex],
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w500)),
         Spacer(),
         if (_selectedNavIndex == 0) ...[
@@ -639,6 +742,49 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     ]);
   }
 
+  Widget _creatorAvatar(Creator creator) {
+    final initial = creator.personaName.isEmpty
+        ? '?'
+        : creator.personaName.characters.first.toUpperCase();
+    final placeholder = ColoredBox(
+        color: AppPalette.accentCyan.withValues(alpha: .12),
+        child: Center(
+            child: Text(initial,
+                style: TextStyle(fontSize: 19, color: AppPalette.accentCyan))));
+    final path = creator.avatarLocalPath;
+    return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: SizedBox(
+            width: 44,
+            height: 44,
+            child: path == null
+                ? placeholder
+                : Image.file(File(p.join(widget.database.dataRootDir, path)),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => placeholder)));
+  }
+
+  Future<void> _refreshCreatorAvatar(Creator creator,
+      {bool notify = false}) async {
+    final identity = await _steamService.resolveCreatorIdentity(
+        rawInput: creator.steamId, apiKey: _settings.steamApiKey);
+    final path = await _steamService.downloadCreatorAvatar(
+        steamId: creator.steamId, avatarUrl: identity.avatarUrl);
+    if (path != null) {
+      final current = (await widget.database.getAllCreators())
+          .where((c) => c.steamId == creator.steamId)
+          .firstOrNull;
+      if (current != null) {
+        await widget.database
+            .upsertCreator(current.copyWith(avatarLocalPath: path));
+      }
+      await _refreshData();
+    }
+    if (mounted && notify) {
+      _showToast(path == null ? '暂时无法获取头像，已保留现有头像' : '头像已更新');
+    }
+  }
+
   Widget _buildCreatorRowCard(Creator creator) {
     final actions = Wrap(
         spacing: 8,
@@ -664,6 +810,9 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
           PopupMenuButton<String>(
             tooltip: '更多操作',
             onSelected: (value) async {
+              if (value == 'avatar') {
+                await _refreshCreatorAvatar(creator, notify: true);
+              }
               if (value == 'open') {
                 await launchUrl(Uri.parse(creator.profileUrl));
               }
@@ -700,6 +849,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
             itemBuilder: (_) => [
               PopupMenuItem(value: 'open', child: Text('打开创意工坊')),
               PopupMenuItem(value: 'copy', child: Text('复制 SteamID')),
+              PopupMenuItem(value: 'avatar', child: Text('更新头像')),
               PopupMenuItem(
                   value: 'remove',
                   enabled: !_isBusy,
@@ -710,21 +860,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         ]);
     final identity =
         Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-      Container(
-          width: 44,
-          height: 44,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-              color: AppPalette.accentCyan.withValues(alpha: .10),
-              borderRadius: BorderRadius.circular(12)),
-          child: Text(
-              creator.personaName.isEmpty
-                  ? '?'
-                  : creator.personaName.characters.first.toUpperCase(),
-              style: TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w600,
-                  color: AppPalette.accentCyan))),
+      _creatorAvatar(creator),
       SizedBox(width: 14),
       Expanded(
           child:
@@ -826,13 +962,47 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   // ==========================================================================
   Widget _buildGalleryView(
       {required int totalActive, required int totalMissing}) {
+    if (_choosingCreator) {
+      return ListView(padding: EdgeInsets.all(28), children: [
+        WorkspaceSurface(
+            padding: EdgeInsets.zero,
+            child: Column(children: [
+              ListTile(
+                  title: Text('全部创作者'),
+                  trailing:
+                      _selectedCreatorId == null ? Icon(Icons.check) : null,
+                  onTap: () {
+                    setState(() {
+                      _selectedCreatorId = null;
+                      _choosingCreator = false;
+                    });
+                    _refreshData();
+                  }),
+              for (final creator in _creators)
+                ListTile(
+                    leading: _creatorAvatar(creator),
+                    title: Text(creator.personaName),
+                    subtitle: Text(creator.steamId),
+                    trailing: _selectedCreatorId == creator.steamId
+                        ? Icon(Icons.check)
+                        : null,
+                    onTap: () {
+                      setState(() {
+                        _selectedCreatorId = creator.steamId;
+                        _choosingCreator = false;
+                      });
+                      _refreshData();
+                    }),
+            ])),
+      ]);
+    }
     return Padding(
         padding: EdgeInsets.all(28),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Text('所有作品', style: TextStyle(fontSize: 14)),
             Spacer(),
-            Text('${_items.length} 件作品',
+            Text('显示 ${_items.length} 件 · 全部归档 ${totalActive + totalMissing} 件',
                 style: TextStyle(fontSize: 12, color: AppPalette.textSecondary))
           ]),
           SizedBox(height: 18),
@@ -865,55 +1035,36 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                                   setState(() => _searchQuery = value);
                                   _refreshData();
                                 })),
-                        SizedBox(
-                            width: 180,
-                            child: DropdownButtonFormField<String>(
-                                initialValue: _selectedCreatorId ?? '',
-                                isExpanded: true,
-                                decoration: InputDecoration(
-                                    prefixIcon: Icon(
-                                        Icons.person_outline_rounded,
-                                        size: 18)),
-                                items: [
-                                  DropdownMenuItem(
-                                      value: '', child: Text('全部创作者')),
-                                  for (final c in _creators)
-                                    DropdownMenuItem(
-                                        value: c.steamId,
-                                        child: Text(c.personaName,
-                                            overflow: TextOverflow.ellipsis))
-                                ],
-                                onChanged: (value) {
-                                  setState(() => _selectedCreatorId =
-                                      value == '' ? null : value);
-                                  _refreshData();
-                                })),
-                        SizedBox(
-                            width: 175,
-                            child: DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                initialValue:
-                                    _galleryStatusFilter?.name ?? 'all',
-                                decoration: InputDecoration(
-                                    prefixIcon: Icon(Icons.filter_list_rounded,
-                                        size: 18)),
-                                items: [
-                                  DropdownMenuItem(
-                                      value: 'all', child: Text('全部状态')),
-                                  DropdownMenuItem(
-                                      value: 'active', child: Text('正常在线')),
-                                  DropdownMenuItem(
-                                      value: 'missing', child: Text('消失 / 下架'))
-                                ],
-                                onChanged: (value) {
-                                  setState(() {
-                                    _galleryStatusFilter = value == 'all'
-                                        ? null
-                                        : ItemStatus.values
-                                            .firstWhere((s) => s.name == value);
-                                  });
-                                  _refreshData();
-                                })),
+                        ActionChip(
+                            avatar: Icon(Icons.person_outline, size: 18),
+                            label: Text(_selectedCreatorId == null
+                                ? '全部创作者'
+                                : _creators
+                                    .firstWhere(
+                                        (c) => c.steamId == _selectedCreatorId)
+                                    .personaName),
+                            onPressed: () =>
+                                setState(() => _choosingCreator = true)),
+                        for (final status in <ItemStatus?>[
+                          null,
+                          ItemStatus.active,
+                          ItemStatus.missing
+                        ])
+                          ChoiceChip(
+                              label: Text(status?.label ?? '全部状态'),
+                              selected: _galleryStatusFilter == status,
+                              onSelected: (_) {
+                                setState(() => _galleryStatusFilter = status);
+                                _refreshData();
+                              }),
+                        ActionChip(
+                            avatar: Icon(Icons.shield_outlined, size: 18),
+                            label: Text(_visibleRatings.length == 1 &&
+                                    _visibleRatings.contains(ContentRating.safe)
+                                ? '仅安全'
+                                : '内容分级 (${_visibleRatings.length})'),
+                            onPressed: () =>
+                                _openSettingsPage('content', returnNav: 1)),
                         FilterChip(
                             label: Text('有修改记录'),
                             selected: _onlyModifiedFilter,
@@ -928,7 +1079,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                   ? _buildEmptyStateCard(
                       icon: Icons.photo_library_outlined,
                       title: '这里将展示归档的壁纸',
-                      subtitle: '先同步一位创作者，或调整筛选条件。')
+                      subtitle: '当前仅显示所选内容分级。请同步作品，或调整分级与其他筛选条件。')
                   : GridView.builder(
                       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: _galleryCardMaxExtent,
@@ -959,7 +1110,8 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       ChoiceChip(
         label: Text(label),
         labelStyle: TextStyle(
-            fontFamily: 'Microsoft YaHei',
+            fontFamily: 'Roboto',
+            fontFamilyFallback: ['Microsoft YaHei UI'],
             fontSize: 12,
             color: isSelected
                 ? Theme.of(context).colorScheme.onSecondaryContainer
@@ -1570,70 +1722,110 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   // 视图 4：本地备份与同步设置
   // ==========================================================================
   Widget _buildBackupSettingsView() {
-    Widget section(String title, Widget child) => Padding(
-        padding: EdgeInsets.only(bottom: 24),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Padding(
-              padding: EdgeInsets.only(left: 8, bottom: 12),
-              child: Text(title,
-                  style:
-                      TextStyle(fontSize: 13, color: AppPalette.accentCyan))),
-          WorkspaceSurface(padding: EdgeInsets.zero, child: child),
-        ]));
-    return ListView(padding: EdgeInsets.fromLTRB(28, 20, 28, 28), children: [
-      section(
-          '连接与同步',
-          Theme(
-              data:
-                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                leading: Icon(Icons.hub_outlined),
-                title: Text('查询方式', style: TextStyle(fontSize: 14)),
-                subtitle: Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text(
-                        '${_settings.steamQueryMode.label} · ${_settings.pollIntervalHours == 0 ? '手动同步' : '每 ${_settings.pollIntervalHours} 小时检查'}',
-                        style: TextStyle(
-                            fontSize: 12, color: AppPalette.textSecondary))),
-                children: [_buildSteamAndScheduleCard()],
-              ))),
-      section(
-          '存储',
-          Theme(
-              data:
-                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                leading: Icon(Icons.folder_outlined),
-                title: Text('本地备份', style: TextStyle(fontSize: 14)),
-                subtitle: Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text(
-                        _settings.localBackupDir.isEmpty
-                            ? '使用默认目录 · ZIP 归档与目录镜像'
-                            : _settings.localBackupDir,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 12, color: AppPalette.textSecondary))),
-                children: [_buildLocalBackupCard()],
-              ))),
-      section(
-          '外观',
-          WorkspaceSettingTile(
-              icon: Icons.palette_outlined,
-              title: '深色模式',
-              subtitle: AppPalette.dark ? '已开启' : '已关闭',
-              trailing: Switch(
-                  value: AppPalette.dark,
-                  onChanged: (value) => _persistSettings(
-                      _settings.copyWith(useDarkTheme: value))))),
-      if (_backupRecords.isNotEmpty) _buildBackupHistoryTableCard(),
-      Padding(
-          padding: EdgeInsets.all(8),
-          child: Text('工坊档案 · Wallpaper Engine Workshop',
-              style: TextStyle(fontSize: 11, color: AppPalette.textMuted))),
+    if (_settingsPage == 'query') {
+      return SingleChildScrollView(
+          padding: EdgeInsets.all(28), child: _buildSteamAndScheduleCard());
+    }
+    if (_settingsPage == 'backup') {
+      return ListView(padding: EdgeInsets.all(28), children: [
+        _buildLocalBackupCard(),
+        SizedBox(height: 20),
+        if (_backupRecords.isNotEmpty) _buildBackupHistoryTableCard()
+      ]);
+    }
+    if (_settingsPage == 'appearance') {
+      return ListView(padding: EdgeInsets.all(28), children: [
+        WorkspaceSurface(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('选择外观', style: TextStyle(fontSize: 16)),
+          SizedBox(height: 20),
+          SegmentedButton<bool>(segments: [
+            ButtonSegment(
+                value: false,
+                icon: Icon(Icons.light_mode_outlined),
+                label: Text('浅色')),
+            ButtonSegment(
+                value: true,
+                icon: Icon(Icons.dark_mode_outlined),
+                label: Text('深色'))
+          ], selected: {
+            AppPalette.dark
+          }, onSelectionChanged: (value) => _changeTheme(value.single)),
+          SizedBox(height: 24),
+          Text('字体', style: TextStyle(fontSize: 14)),
+          SizedBox(height: 8),
+          Text('Material 默认字体 · 中文 Microsoft YaHei UI',
+              style: TextStyle(color: AppPalette.textSecondary)),
+          SizedBox(height: 12),
+          Text('工坊档案 Workshop Library 0123456789',
+              style: TextStyle(fontSize: 22)),
+        ])),
+      ]);
+    }
+    if (_settingsPage == 'content') {
+      return ListView(padding: EdgeInsets.all(28), children: [
+        WorkspaceSurface(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Column(children: [
+              for (final rating in ContentRating.values)
+                CheckboxListTile(
+                    title: Text(rating.label),
+                    subtitle: Text({
+                      ContentRating.safe: 'Everyone',
+                      ContentRating.questionable: 'Questionable',
+                      ContentRating.mature: 'Mature',
+                      ContentRating.unrated: '来源未提供明确分级'
+                    }[rating]!),
+                    value: _visibleRatings.contains(rating),
+                    onChanged: (value) {
+                      setState(() {
+                        if (value == true) {
+                          _visibleRatings.add(rating);
+                        } else {
+                          _visibleRatings.remove(rating);
+                        }
+                      });
+                      _refreshData();
+                    }),
+            ])),
+        SizedBox(height: 20),
+        Text('每次启动仅显示安全内容。这里只控制作品库和变更记录的显示，同步与备份始终处理全部作品。未分级内容默认隐藏。',
+            style: TextStyle(color: AppPalette.textSecondary, height: 1.7)),
+      ]);
+    }
+    return ListView(padding: EdgeInsets.all(28), children: [
+      WorkspaceSurface(
+          padding: EdgeInsets.zero,
+          child: Column(children: [
+            WorkspaceSettingTile(
+                icon: Icons.hub_outlined,
+                title: '查询方式',
+                subtitle: _settings.steamQueryMode.label,
+                onTap: () => _openSettingsPage('query')),
+            Divider(indent: 24, endIndent: 24),
+            WorkspaceSettingTile(
+                icon: Icons.folder_outlined,
+                title: '本地备份',
+                subtitle: 'ZIP 归档与目录镜像',
+                onTap: () => _openSettingsPage('backup')),
+          ])),
+      SizedBox(height: 20),
+      WorkspaceSurface(
+          padding: EdgeInsets.zero,
+          child: Column(children: [
+            WorkspaceSettingTile(
+                icon: Icons.palette_outlined,
+                title: '外观',
+                subtitle: AppPalette.dark ? '深色' : '浅色',
+                onTap: () => _openSettingsPage('appearance')),
+            Divider(indent: 24, endIndent: 24),
+            WorkspaceSettingTile(
+                icon: Icons.shield_outlined,
+                title: '内容分级',
+                subtitle: '每次启动默认仅安全 · 不影响同步',
+                onTap: () => _openSettingsPage('content')),
+          ])),
     ]);
   }
 
@@ -1703,29 +1895,27 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                       style: TextStyle(
                           fontSize: 12, color: AppPalette.textSecondary)),
                   SizedBox(height: 22),
-                  DropdownButtonFormField<SteamQueryMode>(
-                      initialValue: _settings.steamQueryMode,
-                      decoration: InputDecoration(labelText: '查询方式'),
-                      isExpanded: true,
-                      items: [
+                  RadioGroup<SteamQueryMode>(
+                      groupValue: _settings.steamQueryMode,
+                      onChanged: (mode) {
+                        if (mode != null && !_isBusy && !_testingApiKey) {
+                          _persistSettings(_settings.copyWith(
+                              steamQueryMode: mode,
+                              steamApiKey: _apiKeyCtrl.text.trim()));
+                        }
+                      },
+                      child: Column(children: [
                         for (final mode in SteamQueryMode.values)
-                          DropdownMenuItem(value: mode, child: Text(mode.label))
-                      ],
-                      onChanged: _isBusy || _testingApiKey
-                          ? null
-                          : (mode) {
-                              if (mode != null) {
-                                _persistSettings(_settings.copyWith(
-                                    steamQueryMode: mode,
-                                    steamApiKey: _apiKeyCtrl.text.trim()));
-                              }
-                            }),
-                  SizedBox(height: 10),
-                  Text(descriptions[_settings.steamQueryMode]!,
-                      style: TextStyle(
-                          fontSize: 11,
-                          height: 1.7,
-                          color: AppPalette.textSecondary)),
+                          RadioListTile<SteamQueryMode>(
+                              value: mode,
+                              enabled: !_isBusy && !_testingApiKey,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(mode.label),
+                              subtitle: Text(descriptions[mode]!,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppPalette.textSecondary))),
+                      ])),
                   SizedBox(height: 22),
                   TextField(
                       controller: _apiKeyCtrl,
@@ -1789,21 +1979,14 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   SizedBox(height: 16),
-                  DropdownButtonFormField<int>(
-                      initialValue: _settings.pollIntervalHours,
-                      decoration: InputDecoration(labelText: '检查间隔'),
-                      items: [
-                        for (final hours in [0, 2, 6, 12, 24])
-                          DropdownMenuItem(
-                              value: hours,
-                              child: Text(hours == 0 ? '仅手动同步' : '每 $hours 小时'))
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          _persistSettings(
-                              _settings.copyWith(pollIntervalHours: value));
-                        }
-                      }),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final hours in [0, 2, 6, 12, 24])
+                      ChoiceChip(
+                          label: Text(hours == 0 ? '仅手动' : '每 $hours 小时'),
+                          selected: _settings.pollIntervalHours == hours,
+                          onSelected: (_) => _persistSettings(
+                              _settings.copyWith(pollIntervalHours: hours))),
+                  ]),
                   SizedBox(height: 12),
                   SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
@@ -2124,8 +2307,11 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 if (_creators.any((c) => c.steamId == resolved.steamId64)) {
                   throw Exception('这位创作者已在监测列表中，无需重复添加');
                 }
+                final avatarPath = await _steamService.downloadCreatorAvatar(
+                    steamId: resolved.steamId64, avatarUrl: resolved.avatarUrl);
                 await widget.database.upsertCreator(Creator(
                   steamId: resolved.steamId64,
+                  avatarLocalPath: avatarPath,
                   personaName: aliasCtrl.text.trim().isEmpty
                       ? resolved.personaName
                       : aliasCtrl.text.trim(),
@@ -2358,10 +2544,20 @@ class _WorkshopGalleryHoverCardState extends State<_WorkshopGalleryHoverCard> {
                                           fontWeight: FontWeight.w600,
                                           color: AppPalette.textPrimary)),
                                   SizedBox(height: 7),
-                                  Text('作品 ${item.publishedFileId}',
-                                      style: TextStyle(
-                                          fontSize: 10,
-                                          color: AppPalette.textMuted)),
+                                  Row(children: [
+                                    Expanded(
+                                        child: Text(
+                                            '作品 ${item.publishedFileId}',
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                                fontSize: 10,
+                                                color: AppPalette.textMuted))),
+                                    SizedBox(width: 8),
+                                    Text(item.contentRating.label,
+                                        style: TextStyle(
+                                            fontSize: 10,
+                                            color: AppPalette.textSecondary))
+                                  ]),
                                   SizedBox(height: 12),
                                   Row(children: [
                                     Icon(Icons.favorite_border_rounded,

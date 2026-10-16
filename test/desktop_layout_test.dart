@@ -65,7 +65,14 @@ class PreviewDatabase implements WorkshopDatabase {
                 '夏日留白'
               ][i],
               description: '界面预览数据',
-              tags: ['Scene'],
+              tags: [
+                'Scene',
+                i == 4
+                    ? 'Mature'
+                    : i == 5
+                        ? 'Questionable'
+                        : 'Everyone'
+              ],
               fileSizeBytes: 24800000 + i * 12000000,
               previewRemoteUrl: '',
               previewLocalPath: '.dart_tool/ui-preview/art-$i.png',
@@ -132,9 +139,18 @@ void main() {
   });
   setUpAll(() async {
     if (const bool.fromEnvironment('SAVE_UI_PREVIEW')) {
+      final sdk = (Platform.environment['PATH'] ?? '')
+          .split(';')
+          .where((entry) => File(p.join(entry, 'flutter.bat')).existsSync())
+          .first;
+      final roboto = File(p.join(
+          sdk, 'cache', 'artifacts', 'material_fonts', 'roboto-regular.ttf'));
+      final latinLoader = FontLoader('Roboto')
+        ..addFont(roboto.readAsBytes().then((b) => ByteData.sublistView(b)));
+      await latinLoader.load();
       final font = File('${Platform.environment['WINDIR']}/Fonts/msyh.ttc');
       if (await font.exists()) {
-        final loader = FontLoader('Microsoft YaHei')
+        final loader = FontLoader('Microsoft YaHei UI')
           ..addFont(
               font.readAsBytes().then((bytes) => ByteData.sublistView(bytes)));
         await loader.load();
@@ -304,6 +320,15 @@ void main() {
               image.dispose();
             });
           }
+          if (label == '作品资料库') {
+            expect(find.text('Orbital'), findsNothing);
+            expect(find.text('夏日留白'), findsNothing);
+            await tester.tap(find.text('全部创作者'));
+            await tester.pumpAndSettle();
+            expect(find.text('选择创作者'), findsOneWidget);
+            await tester.tap(find.byTooltip('返回'));
+            await tester.pumpAndSettle();
+          }
           if (label == '作品资料库' && size.width >= 960) {
             await tester.tap(find.text('山间回声 · Mountain Echoes'));
             await tester.pumpAndSettle();
@@ -343,17 +368,40 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Steam Web API Key'), findsOneWidget);
         expect(tester.takeException(), isNull);
-        await tester.tap(find.text('查询方式').first);
+        await tester.tap(find.byTooltip('返回'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('本地备份').first);
         await tester.pumpAndSettle();
         expect(find.text('创建 ZIP 备份'), findsOneWidget);
         expect(tester.takeException(), isNull);
+        await tester.tap(find.byTooltip('返回'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('内容分级'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(CheckboxListTile, '成人'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('作品资料库'));
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(find.text('Orbital'), 160,
+            scrollable: find.byType(Scrollable).last);
+        expect(find.text('Orbital'), findsOneWidget);
+        expect(find.text('夏日留白'), findsNothing);
         final toggle = find.byTooltip(dark ? '切换浅色主题' : '切换深色主题');
         await tester.tap(toggle);
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 150)));
         await tester.pumpAndSettle();
         expect(appThemeMode.value, dark ? ThemeMode.light : ThemeMode.dark);
         expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(
+            WorkshopMonitorApp(database: PreviewDatabase(dark: dark)));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('作品资料库'));
+        await tester.pumpAndSettle();
+        expect(find.text('Orbital'), findsNothing);
+        expect(find.text('山间回声 · Mountain Echoes'), findsOneWidget);
         await tester.pumpWidget(const SizedBox());
         await tester.pumpAndSettle();
       });

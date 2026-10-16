@@ -5,6 +5,27 @@ import 'package:flutter/material.dart';
 /// Wallpaper Engine Steam AppID
 const int kWallpaperEngineAppId = 431960;
 
+enum ContentRating {
+  safe('安全'),
+  questionable('存疑'),
+  mature('成人'),
+  unrated('未分级');
+
+  final String label;
+  const ContentRating(this.label);
+
+  static ContentRating fromTags(Iterable<String> tags) {
+    final values = tags.map((tag) => tag.trim().toLowerCase()).toSet();
+    // The most restrictive tag wins if the source provides conflicting tags.
+    if (values.contains('mature') || values.contains('r')) return mature;
+    if (values.contains('questionable') || values.contains('pg13')) {
+      return questionable;
+    }
+    if (values.contains('everyone') || values.contains('g')) return safe;
+    return unrated;
+  }
+}
+
 /// 作品存续状态枚举
 enum ItemStatus {
   active('ACTIVE', '正常在线', Colors.teal),
@@ -125,6 +146,7 @@ class Creator {
 
 /// 创意工坊作品元数据模型（软删除设计，保留历史封面与元数据）
 class WorkshopItem {
+  ContentRating get contentRating => ContentRating.fromTags(tags);
   final String publishedFileId;
   final String creatorSteamId;
   final String title;

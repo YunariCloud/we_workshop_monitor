@@ -504,7 +504,32 @@ class SteamWorkshopService {
     }
   }
 
-  /// 下载预览图并按 {publishedFileId}_{sha256前8位}.{ext} 归档（保留所有历史版本封面）
+  /// Cache creator avatars separately from wallpaper previews.
+  Future<String?> downloadCreatorAvatar(
+      {required String steamId, String? avatarUrl}) async {
+    final uri = Uri.tryParse(avatarUrl ?? '');
+    if (uri == null ||
+        !['https', 'http'].contains(uri.scheme) ||
+        !RegExp(r'^\d{17}$').hasMatch(steamId)) {
+      return null;
+    }
+    try {
+      final response = await _dio.get<List<int>>(uri.toString(),
+          options: Options(responseType: ResponseType.bytes));
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) return null;
+      final hash = sha256.convert(bytes).toString().substring(0, 12);
+      final relative = p.join('avatars', '${steamId}_$hash.img');
+      final file = File(p.join(dataRootDir, relative));
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+      return relative;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 下载预览图并按内容摘要归档，保留历史版本。
   Future<({String relativePath, String sha256Hash})?> downloadPreviewImage({
     required String creatorSteamId,
     required String publishedFileId,
@@ -569,7 +594,10 @@ class SteamWorkshopService {
       } catch (e) {
         if (e is DioException) {
           final status = e.response?.statusCode;
-          if (status != null && status >= 400 && status < 500 && status != 429) {
+          if (status != null &&
+              status >= 400 &&
+              status < 500 &&
+              status != 429) {
             rethrow;
           }
         }

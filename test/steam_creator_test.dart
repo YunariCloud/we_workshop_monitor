@@ -28,6 +28,11 @@ class FakeAdapter implements HttpClientAdapter {
   Future<ResponseBody> fetch(RequestOptions options,
       Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
     final result = respond(options);
+    if (result is List<int>) {
+      return ResponseBody.fromBytes(result, 200, headers: {
+        Headers.contentTypeHeader: ['image/png']
+      });
+    }
     return ResponseBody.fromString(
       result is String ? result : jsonEncode(result),
       200,
@@ -64,6 +69,63 @@ Map<String, Object> detailsResponse(List<Map<String, Object>> items) => {
     };
 
 void main() {
+  test('rating tags are explicit and use the most restrictive classification',
+      () {
+    expect(ContentRating.fromTags(['Scene', 'Everyone']), ContentRating.safe);
+    expect(ContentRating.fromTags(['QUESTIONABLE', 'everyone']),
+        ContentRating.questionable);
+    expect(
+        ContentRating.fromTags(['Mature', 'Everyone']), ContentRating.mature);
+    expect(ContentRating.fromTags(['Scene']), ContentRating.unrated);
+    expect(ContentRating.fromTags([]), ContentRating.unrated);
+  });
+
+  test(
+      'creator avatar is resolved and cached without requiring a public profile',
+      () async {
+    final temporary =
+        await Directory.systemTemp.createTemp('workshop-avatar-test-');
+    try {
+      final bytes = base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=');
+      final dio = Dio()
+        ..httpClientAdapter = FakeAdapter((request) {
+          if (request.uri.host == 'avatars.steamstatic.com') return bytes;
+          return {
+            'response': {
+              'players': [
+                {
+                  'personaname': 'Private author',
+                  'avatarfull': 'https://avatars.steamstatic.com/avatar.png'
+                }
+              ]
+            }
+          };
+        });
+      final steam = SteamWorkshopService(
+          dataRootDir: temporary.path,
+          dio: dio,
+          steamClient: FakeSteamSource());
+      final identity = await steam.resolveCreatorIdentity(
+          rawInput: '76561199182487944',
+          apiKey: '00000000000000000000000000000000');
+      final path = await steam.downloadCreatorAvatar(
+          steamId: identity.steamId64, avatarUrl: identity.avatarUrl);
+      expect(path, startsWith('avatars'));
+      expect(await File('${temporary.path}/$path').readAsBytes(), bytes);
+      expect(
+          await steam.downloadCreatorAvatar(
+              steamId: identity.steamId64, avatarUrl: 'file:///private'),
+          isNull);
+    } finally {
+      if (!temporary.absolute.path.startsWith(
+          '${Directory.systemTemp.absolute.path}${Platform.pathSeparator}workshop-avatar-test-')) {
+        throw StateError(
+            'Refusing to remove a directory outside the avatar test root');
+      }
+      await temporary.delete(recursive: true);
+    }
+  });
   test(
       'explicit API mode paginates without using Steam and preserves full metadata',
       () async {

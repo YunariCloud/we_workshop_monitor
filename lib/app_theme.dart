@@ -46,7 +46,8 @@ ThemeData buildWorkshopTheme() {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
-      fontFamily: 'Microsoft YaHei');
+      fontFamily: 'Roboto',
+      fontFamilyFallback: const ['Microsoft YaHei UI']);
   final outline = OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
       borderSide: BorderSide(color: AppPalette.borderSubtle));
@@ -62,7 +63,10 @@ ThemeData buildWorkshopTheme() {
               ? scheme.secondaryContainer
               : AppPalette.bgInput),
       labelStyle: TextStyle(
-          fontFamily: 'Microsoft YaHei', fontSize: 12, color: scheme.onSurface),
+          fontFamily: 'Roboto',
+          fontFamilyFallback: const ['Microsoft YaHei UI'],
+          fontSize: 12,
+          color: scheme.onSurface),
       side: BorderSide(color: AppPalette.borderSubtle),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
@@ -94,7 +98,8 @@ ThemeData buildWorkshopTheme() {
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             textStyle: const TextStyle(
-                fontFamily: 'Microsoft YaHei',
+                fontFamily: 'Roboto',
+                fontFamilyFallback: ['Microsoft YaHei UI'],
                 fontSize: 13,
                 fontWeight: FontWeight.w500))),
     outlinedButtonTheme: OutlinedButtonThemeData(

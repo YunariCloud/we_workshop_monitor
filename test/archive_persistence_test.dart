@@ -15,6 +15,7 @@ import 'package:we_workshop_monitor/workshop_models.dart';
 class ArchiveTestSteam extends SteamWorkshopService {
   bool failPreviews = false;
   int previewAttempts = 0;
+  List<String> remoteTags = const ['Scene'];
   ArchiveTestSteam(String root) : super(dataRootDir: root);
 
   @override
@@ -30,7 +31,7 @@ class ArchiveTestSteam extends SteamWorkshopService {
               publishedFileId: id,
               title: 'Archived wallpaper $id',
               description: 'Original description',
-              tags: const ['Scene'],
+              tags: remoteTags,
               fileSizeBytes: 1024,
               previewUrl: 'https://example.com/$id.png',
               timeCreated: 100,
@@ -109,6 +110,47 @@ void main() {
   Future<SyncReport> sync() async =>
       WorkshopDiffEngine(database: database, steamService: steam).syncCreator(
           creator: (await database.getAllCreators()).single, apiKey: '');
+
+  test(
+      'content ratings do not exclude any works from sync or backup; cached avatars are included',
+      () async {
+    steam.remoteTags = ['Mature'];
+    final avatar = File(p.join(database.dataRootDir, 'avatars', 'author.img'));
+    await avatar.parent.create(recursive: true);
+    await avatar.writeAsBytes([1, 2, 3]);
+    await database.upsertCreator(
+        creator.copyWith(avatarLocalPath: p.join('avatars', 'author.img')));
+    final report = await sync();
+    expect(report.baselineCount, 2);
+    expect(
+        (await database.queryItems())
+            .every((item) => item.contentRating == ContentRating.mature),
+        isTrue);
+    final backup = BackupService(database: database);
+    final zip = await backup.runLocalZipBackup(
+        targetBackupDir: p.join(temporary.path, 'zip'));
+    final archive = ZipDecoder().decodeBytes(await zip.readAsBytes());
+    expect(
+        archive.files.any((file) => file.name == 'avatars/author.img'), isTrue);
+    final mirror = p.join(temporary.path, 'mirror');
+    await backup.runLocalMirrorSync(targetMirrorDir: mirror);
+    expect(
+        await File(p.join(mirror, 'avatars', 'author.img')).exists(), isTrue);
+    final items = jsonDecode(
+        await File(p.join(mirror, 'exports', 'items_all.json'))
+            .readAsString()) as List;
+    expect(items, hasLength(2));
+  });
+
+  test('a new workspace never preloads a fixed creator', () async {
+    final fresh = await WorkshopDatabase.initialize(
+        dataRootDirOverride: p.join(temporary.path, 'fresh'));
+    try {
+      expect(await fresh.getAllCreators(), isEmpty);
+    } finally {
+      await fresh.db.close();
+    }
+  });
 
   test('sync statistics and local backups preserve archived items and history',
       () async {

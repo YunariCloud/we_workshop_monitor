@@ -57,3 +57,7 @@ app.*.map.json
 /backup_staging/
 /local_backups/
 /previews/
+
+/dist/
+/backup_work/
+/avatars/

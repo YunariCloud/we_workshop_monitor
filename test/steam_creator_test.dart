@@ -69,6 +69,28 @@ Map<String, Object> detailsResponse(List<Map<String, Object>> items) => {
     };
 
 void main() {
+  test('API key test requests one record once, without fetching all pages',
+      () async {
+    var requests = 0;
+    final steam = service((request) {
+      requests++;
+      expect(request.queryParameters['numperpage'], 1);
+      expect(request.queryParameters['page'], 1);
+      return {
+        'response': {
+          'total': 456,
+          'publishedfiledetails': [detail('123456')]
+        }
+      };
+    });
+    expect(
+        await steam.testWebApiKey(
+            steamId: '76561199182487944',
+            apiKey: '00000000000000000000000000000000'),
+        1);
+    expect(requests, 1);
+  });
+
   test('rating tags are explicit and use the most restrictive classification',
       () {
     expect(ContentRating.fromTags(['Scene', 'Everyone']), ContentRating.safe);

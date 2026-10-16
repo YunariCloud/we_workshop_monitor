@@ -20,6 +20,8 @@ import 'workspace_widgets.dart';
 import 'workshop_timeline.dart';
 import 'workshop_history_view.dart';
 import 'workshop_change_details.dart';
+import 'webdav_backup.dart';
+import 'webdav_settings_view.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,6 +56,7 @@ class MainDesktopShell extends StatefulWidget {
 class _MainDesktopShellState extends State<MainDesktopShell> {
   static final _secureStorage = FlutterSecureStorage();
   static final _kSteamApiKeyStorageKey = 'we_monitor_steam_api_key';
+  static const _webdavPasswordKey = 'we_monitor_webdav_password';
 
   int _selectedNavIndex = 0;
   String? _settingsPage;
@@ -69,7 +72,8 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   String _searchQuery = '';
   final double _galleryCardMaxExtent = 340;
 
-  String _syncProgressBanner = '';
+  final Map<String, ({int completed, int total})> _creatorProgress = {};
+  bool _backupBusy = false;
   bool _isBusy = false;
   bool _obscureApiKey = true;
   bool _testingApiKey = false;
@@ -112,11 +116,23 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
       diffEngine: _diffEngine,
       backupService: _backupService,
       initialSettings: _settings,
-      onBackgroundSyncEvent: (bannerMsg) async {
+      onBackgroundSyncEvent: (message) async {
         if (!mounted) return;
-        setState(() => _syncProgressBanner =
-            bannerMsg.replaceAll(RegExp('《[^》]*》'), '作品'));
+        if (message.isNotEmpty) _showToast(message, isWarning: true);
         await _refreshData();
+      },
+      onBusyChanged: (busy) {
+        if (mounted) setState(() => _isBusy = busy);
+      },
+      onCreatorProgress: (id, completed, total, finished) {
+        if (!mounted) return;
+        setState(() {
+          if (finished) {
+            _creatorProgress.remove(id);
+          } else {
+            _creatorProgress[id] = (completed: completed, total: total);
+          }
+        });
       },
     );
     _initializeSettingsAndData();
@@ -131,18 +147,23 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     try {
       final savedMap = await widget.database.loadConfigJson();
       String apiKey = '';
+      String webdavPassword = '';
       try {
         apiKey = await _secureStorage.read(key: _kSteamApiKeyStorageKey) ?? '';
+        webdavPassword =
+            await _secureStorage.read(key: _webdavPasswordKey) ?? '';
       } catch (_) {}
 
       if (savedMap != null) {
         _settings = AppSettings.fromNonSensitiveJson(
           savedMap,
           steamApiKey: apiKey,
+          webdavPassword: webdavPassword,
         );
       } else {
         _settings = _settings.copyWith(
           steamApiKey: apiKey,
+          webdavPassword: webdavPassword,
         );
       }
       _syncControllersFromSettings();
@@ -195,22 +216,8 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
 
   Future<void> _triggerCreatorSync(Creator creator) async {
     if (_isBusy) return;
-    setState(() {
-      _isBusy = true;
-      _syncProgressBanner = '正在准备同步创作者【${creator.personaName}】...';
-    });
-
     try {
-      final report = await _diffEngine.syncCreator(
-        creator: creator,
-        apiKey: _settings.steamApiKey,
-        queryMode: _settings.steamQueryMode,
-        onStatusUpdate: (msg) {
-          if (mounted) {
-            setState(() => _syncProgressBanner = msg);
-          }
-        },
-      );
+      final report = await _schedulerTrayService.syncCreatorNow(creator);
 
       // Publish saved records before an optional backup can fail, and reveal
       // the newly built archive instead of leaving the user on stale filters.
@@ -229,15 +236,11 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         await _refreshCreatorAvatar(creator);
       } catch (_) {}
       String? backupWarning;
-      if (report.hasAnyChange &&
-          _settings.autoBackupAfterChange &&
-          _settings.localBackupDir.trim().isNotEmpty) {
+      if (report.hasAnyChange) {
         try {
-          if (mounted) setState(() => _syncProgressBanner = '正在备份到本地目录…');
-          await _backupService.runLocalMirrorSync(
-              targetMirrorDir: _settings.localBackupDir.trim());
+          await _schedulerTrayService.runAutomaticBackup();
         } catch (_) {
-          backupWarning = '作品已保存，但本地自动备份失败，请检查备份目录';
+          backupWarning = '作品已保存，但自动备份失败，请检查备份设置';
         }
       }
 
@@ -253,13 +256,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     } catch (e) {
       if (!mounted) return;
       _showToast('同步失败: $e', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isBusy = false;
-          _syncProgressBanner = '';
-        });
-      }
     }
   }
 
@@ -268,11 +264,17 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     bool isError = false,
     bool isWarning = false,
   }) {
+    final scheme = Theme.of(context).colorScheme;
     final bgColor = isError
-        ? AppPalette.statusMissing
+        ? scheme.errorContainer
         : isWarning
-            ? AppPalette.statusModified
-            : AppPalette.bgCardHover;
+            ? scheme.tertiaryContainer
+            : scheme.secondaryContainer;
+    final foreground = isError
+        ? scheme.onErrorContainer
+        : isWarning
+            ? scheme.onTertiaryContainer
+            : scheme.onSecondaryContainer;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
@@ -287,7 +289,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                   : isWarning
                       ? Icons.warning_amber_rounded
                       : Icons.check_circle_outline,
-              color: Colors.white,
+              color: foreground,
               size: 20,
             ),
             SizedBox(width: 10),
@@ -295,7 +297,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
               child: Text(
                 message,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: foreground,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -336,7 +338,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
             child: Column(
               children: [
                 _buildWorkspaceToolbar(),
-                if (_syncProgressBanner.isNotEmpty) _buildTopProgressStrip(),
                 Expanded(
                   child: <Widget Function()>[
                     () => _buildCreatorsView(
@@ -525,6 +526,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 ? {
                     'query': '作品查询与同步',
                     'backup': '本地备份',
+                    'webdav': 'WebDAV 云端备份',
                     'appearance': '外观',
                     'content': '内容分级'
                   }[_settingsPage]!
@@ -548,57 +550,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
         ] else
           Icon(Icons.layers_outlined, color: AppPalette.textMuted, size: 23),
       ]),
-    );
-  }
-
-  Widget _buildTopProgressStrip() {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppPalette.accentCyan.withValues(alpha: 0.18),
-            AppPalette.accentIndigo.withValues(alpha: 0.18),
-          ],
-        ),
-        border: Border(
-          bottom: BorderSide(color: AppPalette.borderSubtle),
-        ),
-      ),
-      child: Row(
-        children: [
-          if (_isBusy)
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.2,
-                color: AppPalette.accentCyan,
-              ),
-            )
-          else
-            Icon(
-              Icons.notifications_active_outlined,
-              size: 18,
-              color: AppPalette.statusModified,
-            ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              _syncProgressBanner,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: AppPalette.textPrimary,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () => setState(() => _syncProgressBanner = ''),
-            child: Text('隐藏', style: TextStyle(fontSize: 12)),
-          ),
-        ],
-      ),
     );
   }
 
@@ -884,6 +835,7 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                       height: 1.4,
                       color: AppPalette.textSecondary))),
         ]);
+    final progress = _creatorProgress[creator.steamId];
     final metrics = Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -909,15 +861,22 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                             ? AppPalette.statusActive
                             : AppPalette.statusModified),
                     SizedBox(width: 6),
-                    Text(creator.isBaselineCompleted ? '已建立档案' : '等待同步',
+                    Text(
+                        progress != null
+                            ? '${progress.completed} / ${progress.total > 0 ? progress.total : '—'}'
+                            : creator.isBaselineCompleted
+                                ? '已建立档案'
+                                : '等待同步',
                         style: TextStyle(fontSize: 14, height: 1.4)),
                   ]),
-                  creator.lastSyncedAt == null
-                      ? '尚未同步'
-                      : creator.lastSyncedAt!
-                          .toLocal()
-                          .toString()
-                          .substring(0, 16),
+                  progress != null
+                      ? '同步中'
+                      : creator.lastSyncedAt == null
+                          ? '尚未同步'
+                          : creator.lastSyncedAt!
+                              .toLocal()
+                              .toString()
+                              .substring(0, 16),
                   indent: 12)),
         ]);
     return Material(
@@ -1476,6 +1435,35 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
   // 视图 4：本地备份与同步设置
   // ==========================================================================
   Widget _buildBackupSettingsView() {
+    if (_settingsPage == 'webdav') {
+      return WebDavSettingsView(
+          settings: _settings,
+          onSave: (settings) async {
+            try {
+              await _secureStorage.write(
+                  key: _webdavPasswordKey, value: settings.webdavPassword);
+            } catch (_) {
+              throw const FormatException('无法保存到系统安全存储，请稍后重试');
+            }
+            await _persistSettings(settings);
+          },
+          onBackup: (settings, progress) async {
+            if (_backupBusy || _isBusy) {
+              throw const FormatException('请等待当前任务完成后再备份');
+            }
+            setState(() => _backupBusy = true);
+            try {
+              await runWebDavBackup(
+                  database: widget.database,
+                  backups: _backupService,
+                  settings: settings,
+                  onProgress: progress);
+              await _refreshData();
+            } finally {
+              if (mounted) setState(() => _backupBusy = false);
+            }
+          });
+    }
     if (_settingsPage == 'query') {
       return SingleChildScrollView(
           padding: EdgeInsets.all(28), child: _buildSteamAndScheduleCard());
@@ -1563,6 +1551,12 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 title: '本地备份',
                 subtitle: 'ZIP 归档与目录镜像',
                 onTap: () => _openSettingsPage('backup')),
+            Divider(indent: 24, endIndent: 24),
+            WorkspaceSettingTile(
+                icon: Icons.cloud_outlined,
+                title: 'WebDAV 云端备份',
+                subtitle: '默认轻量备份',
+                onTap: () => _openSettingsPage('webdav')),
           ])),
       SizedBox(height: 20),
       WorkspaceSurface(
@@ -1600,15 +1594,12 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
     try {
       await _persistSettings(_settings.copyWith(steamApiKey: key));
       final creator = _creators.first;
-      final items = await _steamService.fetchAllCreatorItems(
-          steamId: creator.steamId,
-          apiKey: key,
-          queryMode: SteamQueryMode.webApi);
+      final tested = await _steamService.testWebApiKey(
+          steamId: creator.steamId, apiKey: key);
       if (!mounted) return;
       setState(() {
         _apiTestFailed = false;
-        _apiTestResult =
-            '连接成功 · ${creator.personaName} · ${items.length} 条可查询作品。请在创作者页点击同步，将作品保存到资料库。';
+        _apiTestResult = '连接成功 · 已测试 $tested 条作品。测试不会导入作品，请在创作者页同步。';
       });
     } catch (error) {
       if (!mounted) return;
@@ -1763,6 +1754,39 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 ])));
   }
 
+  Future<void> _runLocalBackup({required bool mirror}) async {
+    if (_backupBusy || _isBusy) return;
+    setState(() => _backupBusy = true);
+    try {
+      await _persistSettings(
+          _settings.copyWith(localBackupDir: _localDirCtrl.text.trim()));
+      final target = _settings.localBackupDir.isNotEmpty
+          ? _settings.localBackupDir
+          : p.join(widget.database.dataRootDir,
+              mirror ? 'local_mirror' : 'local_backups');
+      if (mirror) {
+        await _backupService.runLocalMirrorSync(
+            targetMirrorDir: target, lightweight: _settings.lightweightBackup);
+        if (mounted) _showToast('本地镜像备份已完成');
+      } else {
+        final archive = await _backupService.runLocalZipBackup(
+            targetBackupDir: target,
+            maxKeepCount: _settings.maxLocalZipKeep,
+            lightweight: _settings.lightweightBackup);
+        final size = (await archive.length() / 1024 / 1024).toStringAsFixed(1);
+        if (mounted) {
+          _showToast(
+              '${_settings.lightweightBackup ? '轻量' : '原图'} ZIP 备份已完成 · $size MB');
+        }
+      }
+      await _refreshData();
+    } catch (_) {
+      if (mounted) _showToast('本地备份失败，请检查目录或稍后重试', isError: true);
+    } finally {
+      if (mounted) setState(() => _backupBusy = false);
+    }
+  }
+
   Widget _buildLocalBackupCard() {
     return Card(
       child: Padding(
@@ -1797,6 +1821,27 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
               ],
             ),
             SizedBox(height: 16),
+            SegmentedButton<bool>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(value: true, label: Text('轻量备份')),
+                  ButtonSegment(value: false, label: Text('原图备份'))
+                ],
+                selected: {_settings.lightweightBackup},
+                onSelectionChanged: _backupBusy
+                    ? null
+                    : (values) => _persistSettings(
+                        _settings.copyWith(lightweightBackup: values.single))),
+            SizedBox(height: 12),
+            Text(
+                _settings.lightweightBackup
+                    ? '动图转静态封面，最长边 1280px；作品与历史记录完整保留，本机原图不变。轻量镜像单独保存到 lightweight 子目录。'
+                    : '保留原始预览图与动图，文件较大。',
+                style: TextStyle(
+                    fontSize: 12,
+                    height: 1.6,
+                    color: AppPalette.textSecondary)),
+            SizedBox(height: 20),
             TextField(
               controller: _localDirCtrl,
               decoration: InputDecoration(
@@ -1816,34 +1861,18 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 height: 1.4,
               ),
             ),
+            if (_backupBusy)
+              Padding(
+                  padding: EdgeInsets.only(top: 16),
+                  child: LinearProgressIndicator()),
             SizedBox(height: 18),
             Row(
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _isBusy
+                    onPressed: _isBusy || _backupBusy
                         ? null
-                        : () async {
-                            await _persistSettings(
-                              _settings.copyWith(
-                                localBackupDir: _localDirCtrl.text.trim(),
-                              ),
-                            );
-                            final targetDir = _settings.localBackupDir.isEmpty
-                                ? p.join(
-                                    widget.database.dataRootDir,
-                                    'local_backups',
-                                  )
-                                : _settings.localBackupDir;
-                            final zipFile =
-                                await _backupService.runLocalZipBackup(
-                              targetBackupDir: targetDir,
-                              maxKeepCount: _settings.maxLocalZipKeep,
-                            );
-                            await _refreshData();
-                            if (!mounted) return;
-                            _showToast('本地全量 ZIP 备份已生成：${zipFile.path}');
-                          },
+                        : () => _runLocalBackup(mirror: false),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppPalette.accentCyan,
                       foregroundColor: AppPalette.bgCanvas,
@@ -1859,30 +1888,9 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                 SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _isBusy
+                    onPressed: _isBusy || _backupBusy
                         ? null
-                        : () async {
-                            await _persistSettings(
-                              _settings.copyWith(
-                                localBackupDir: _localDirCtrl.text.trim(),
-                              ),
-                            );
-                            final targetDir = _settings.localBackupDir.isEmpty
-                                ? p.join(
-                                    widget.database.dataRootDir,
-                                    'local_mirror',
-                                  )
-                                : _settings.localBackupDir;
-                            final count =
-                                await _backupService.runLocalMirrorSync(
-                              targetMirrorDir: targetDir,
-                            );
-                            await _refreshData();
-                            if (!mounted) return;
-                            _showToast(
-                              '本地增量镜像同步完成：更新 $count 个文件至 $targetDir',
-                            );
-                          },
+                        : () => _runLocalBackup(mirror: true),
                     style: OutlinedButton.styleFrom(
                       padding: EdgeInsets.symmetric(vertical: 13),
                     ),

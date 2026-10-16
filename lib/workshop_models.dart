@@ -371,6 +371,13 @@ class AppSettings {
   final String httpProxyUrl;
   final String localBackupDir;
   final int maxLocalZipKeep;
+  final bool lightweightBackup;
+  final bool webdavEnabled;
+  final bool webdavLightweight;
+  final String webdavUrl;
+  final String webdavUsername;
+  final String webdavPassword;
+  final String webdavFolder;
 
   const AppSettings({
     this.steamApiKey = '',
@@ -383,6 +390,13 @@ class AppSettings {
     this.httpProxyUrl = '',
     this.localBackupDir = '',
     this.maxLocalZipKeep = 10,
+    this.lightweightBackup = true,
+    this.webdavEnabled = false,
+    this.webdavLightweight = true,
+    this.webdavUrl = '',
+    this.webdavUsername = '',
+    this.webdavPassword = '',
+    this.webdavFolder = 'WE_Workshop_Monitor',
   });
 
   AppSettings copyWith({
@@ -396,6 +410,13 @@ class AppSettings {
     String? httpProxyUrl,
     String? localBackupDir,
     int? maxLocalZipKeep,
+    bool? lightweightBackup,
+    bool? webdavEnabled,
+    bool? webdavLightweight,
+    String? webdavUrl,
+    String? webdavUsername,
+    String? webdavPassword,
+    String? webdavFolder,
   }) {
     return AppSettings(
       steamApiKey: steamApiKey ?? this.steamApiKey,
@@ -410,6 +431,13 @@ class AppSettings {
       httpProxyUrl: httpProxyUrl ?? this.httpProxyUrl,
       localBackupDir: localBackupDir ?? this.localBackupDir,
       maxLocalZipKeep: maxLocalZipKeep ?? this.maxLocalZipKeep,
+      lightweightBackup: lightweightBackup ?? this.lightweightBackup,
+      webdavEnabled: webdavEnabled ?? this.webdavEnabled,
+      webdavLightweight: webdavLightweight ?? this.webdavLightweight,
+      webdavUrl: webdavUrl ?? this.webdavUrl,
+      webdavUsername: webdavUsername ?? this.webdavUsername,
+      webdavPassword: webdavPassword ?? this.webdavPassword,
+      webdavFolder: webdavFolder ?? this.webdavFolder,
     );
   }
 
@@ -424,12 +452,19 @@ class AppSettings {
       'http_proxy_url': httpProxyUrl,
       'local_backup_dir': localBackupDir,
       'max_local_zip_keep': maxLocalZipKeep,
+      'lightweight_backup': lightweightBackup,
+      'webdav_enabled': webdavEnabled,
+      'webdav_lightweight': webdavLightweight,
+      'webdav_url': webdavUrl,
+      'webdav_username': webdavUsername,
+      'webdav_folder': webdavFolder,
     };
   }
 
   factory AppSettings.fromNonSensitiveJson(
     Map<String, dynamic> json, {
     String steamApiKey = '',
+    String webdavPassword = '',
   }) {
     return AppSettings(
       steamApiKey: steamApiKey,
@@ -444,6 +479,13 @@ class AppSettings {
       httpProxyUrl: json['http_proxy_url'] as String? ?? '',
       localBackupDir: json['local_backup_dir'] as String? ?? '',
       maxLocalZipKeep: json['max_local_zip_keep'] as int? ?? 10,
+      lightweightBackup: json['lightweight_backup'] as bool? ?? true,
+      webdavEnabled: json['webdav_enabled'] as bool? ?? false,
+      webdavLightweight: json['webdav_lightweight'] as bool? ?? true,
+      webdavUrl: json['webdav_url'] as String? ?? '',
+      webdavUsername: json['webdav_username'] as String? ?? '',
+      webdavPassword: webdavPassword,
+      webdavFolder: json['webdav_folder'] as String? ?? 'WE_Workshop_Monitor',
     );
   }
 }

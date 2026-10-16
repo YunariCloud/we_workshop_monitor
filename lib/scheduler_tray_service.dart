@@ -9,6 +9,7 @@ import 'backup_service.dart';
 import 'diff_engine.dart';
 import 'workshop_database.dart';
 import 'workshop_models.dart';
+import 'webdav_backup.dart';
 
 const desktopMinimumSize = Size(960, 680);
 
@@ -36,6 +37,11 @@ class SchedulerAndTrayService with WindowListener, TrayListener {
   final BackupService backupService;
   final Future<void> Function(String bannerMessage) onBackgroundSyncEvent;
 
+  bool _running = false;
+  final void Function(bool busy)? onBusyChanged;
+  final void Function(
+          String creatorId, int completed, int total, bool finished)?
+      onCreatorProgress;
   Timer? _pollingTimer;
   AppSettings _currentSettings;
 
@@ -45,6 +51,8 @@ class SchedulerAndTrayService with WindowListener, TrayListener {
     required this.backupService,
     required AppSettings initialSettings,
     required this.onBackgroundSyncEvent,
+    this.onBusyChanged,
+    this.onCreatorProgress,
   }) : _currentSettings = initialSettings;
 
   /// 初始化桌面窗口拦截与系统托盘菜单
@@ -89,46 +97,88 @@ class SchedulerAndTrayService with WindowListener, TrayListener {
     }
   }
 
-  /// 后台批量轮询所有已添加的创作者，并在发现变更时自动触发本地增量备份
-  Future<void> runScheduledSyncAllCreators() async {
-    final creators = await database.getAllCreators();
-    if (creators.isEmpty) return;
-
-    bool anyChanged = false;
-    int totalMissingDetected = 0;
-
-    for (final creator in creators) {
-      try {
-        final report = await diffEngine.syncCreator(
+  Future<SyncReport> _syncOne(Creator creator) async {
+    var completed = 0;
+    var total = 0;
+    onCreatorProgress?.call(creator.steamId, 0, 0, false);
+    try {
+      return await diffEngine.syncCreator(
           creator: creator,
           apiKey: _currentSettings.steamApiKey,
           queryMode: _currentSettings.steamQueryMode,
-          onStatusUpdate: (msg) => onBackgroundSyncEvent(msg),
-        );
-        if (report.hasAnyChange) {
-          anyChanged = true;
-        }
-        totalMissingDetected += report.missingCount;
-      } catch (_) {}
+          onProgress: (count, all) {
+            completed = count;
+            total = all;
+            onCreatorProgress?.call(creator.steamId, count, all, false);
+          });
+    } finally {
+      onCreatorProgress?.call(creator.steamId, completed, total, true);
     }
+  }
 
-    // 若检测到新增、修改或下架，且开启了自动备份，则自动执行本地镜像增量同步
-    if (anyChanged && _currentSettings.autoBackupAfterChange) {
+  Future<SyncReport> syncCreatorNow(Creator creator) async {
+    if (_running) throw StateError('已有同步任务正在运行');
+    _running = true;
+    onBusyChanged?.call(true);
+    try {
+      return await _syncOne(creator);
+    } finally {
+      _running = false;
+      onBusyChanged?.call(false);
+    }
+  }
+
+  Future<void> runAutomaticBackup() async {
+    if (!_currentSettings.autoBackupAfterChange) return;
+    final errors = <String>[];
+    if (_currentSettings.localBackupDir.trim().isNotEmpty) {
       try {
-        if (_currentSettings.localBackupDir.trim().isNotEmpty) {
-          await backupService.runLocalMirrorSync(
+        await backupService.runLocalMirrorSync(
             targetMirrorDir: _currentSettings.localBackupDir.trim(),
-          );
-        }
-      } catch (_) {}
+            lightweight: _currentSettings.lightweightBackup);
+      } catch (_) {
+        errors.add('本地自动备份失败');
+      }
     }
+    if (_currentSettings.webdavEnabled) {
+      try {
+        await runWebDavBackup(
+            database: database,
+            backups: backupService,
+            settings: _currentSettings);
+      } catch (_) {
+        errors.add('WebDAV 自动备份失败');
+      }
+    }
+    if (errors.isNotEmpty) throw Exception(errors.join('；'));
+  }
 
-    if (totalMissingDetected > 0) {
-      await onBackgroundSyncEvent(
-        '告警：后台轮询发现 $totalMissingDetected 件创意工坊作品已消失/下架，本地档案已锁定保留！',
-      );
-    } else {
-      await onBackgroundSyncEvent('');
+  Future<void> runScheduledSyncAllCreators() async {
+    if (_running) return;
+    _running = true;
+    onBusyChanged?.call(true);
+    final errors = <String>[];
+    var changed = false;
+    try {
+      for (final creator in await database.getAllCreators()) {
+        try {
+          changed = (await _syncOne(creator)).hasAnyChange || changed;
+        } catch (_) {
+          errors.add('${creator.personaName} 同步失败');
+        }
+        await onBackgroundSyncEvent('');
+      }
+      if (changed) {
+        try {
+          await runAutomaticBackup();
+        } catch (_) {
+          errors.add('自动备份失败，请检查备份设置');
+        }
+      }
+    } finally {
+      _running = false;
+      onBusyChanged?.call(false);
+      await onBackgroundSyncEvent(errors.join('；'));
     }
   }
 

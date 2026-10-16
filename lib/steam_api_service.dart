@@ -240,6 +240,35 @@ class SteamWorkshopService {
     }
   }
 
+  /// A single authenticated request; never imports or paginates test results.
+  Future<int> testWebApiKey(
+      {required String steamId, required String apiKey}) async {
+    if (!RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(apiKey.trim())) {
+      throw const FormatException('请填写有效的 32 位 Steam Web API Key');
+    }
+    final body =
+        await _authenticatedGet('IPublishedFileService/GetUserFiles/v1/', {
+      'key': apiKey.trim(),
+      'steamid': steamId,
+      'appid': kWallpaperEngineAppId,
+      'page': 1,
+      'numperpage': 1,
+      'return_details': true,
+    });
+    final response = body['response'] as Map?;
+    final total = int.tryParse(response?['total']?.toString() ?? '');
+    final rows = response?['publishedfiledetails'] as List? ?? [];
+    if (total == null ||
+        total < 0 ||
+        (response?['result'] != null && response?['result'] != 1) ||
+        rows.length > 1 ||
+        (total > 0 && rows.isEmpty) ||
+        rows.any((row) => row is! Map || row['result'] != 1)) {
+      throw Exception('Steam 未返回有效的测试结果，请检查 API Key');
+    }
+    return rows.length;
+  }
+
   Future<List<RemoteWorkshopEntry>> _fetchViaSteamWebApi({
     required String steamId,
     required String apiKey,

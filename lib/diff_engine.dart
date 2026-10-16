@@ -23,7 +23,9 @@ class WorkshopDiffEngine {
     required String apiKey,
     SteamQueryMode queryMode = SteamQueryMode.automatic,
     void Function(String stageMessage)? onStatusUpdate,
+    void Function(int completed, int total)? onProgress,
   }) async {
+    onProgress?.call(0, 0);
     final now = DateTime.now().toUtc();
     final batchId = 'SYNC_${now.millisecondsSinceEpoch}';
 
@@ -35,6 +37,7 @@ class WorkshopDiffEngine {
       apiKey: apiKey,
       queryMode: queryMode,
       onProgress: (fetched, total) {
+        onProgress?.call(0, total);
         onStatusUpdate?.call(
           '${steamService.lastFetchSourceLabel}：正在读取作品 $fetched / ${total > 0 ? total : fetched}...',
         );
@@ -48,6 +51,16 @@ class WorkshopDiffEngine {
     final remoteMap = {
       for (final entry in remoteEntries) entry.publishedFileId: entry
     };
+
+    final absentItems = localItems
+        .where((item) =>
+            item.status == ItemStatus.active &&
+            !remoteMap.containsKey(item.publishedFileId))
+        .toList();
+    final totalToProcess = remoteEntries.length +
+        (creator.isBaselineCompleted ? absentItems.length : 0);
+    var processed = 0;
+    onProgress?.call(0, totalToProcess);
 
     // ========================================================================
     // 分支 A：首次全量基线建档 (isBaselineCompleted == false)
@@ -112,6 +125,7 @@ class WorkshopDiffEngine {
             'detected_at': now.toIso8601String(),
           });
         });
+        onProgress?.call(++processed, totalToProcess);
       }
 
       await database.upsertCreator(
@@ -324,6 +338,7 @@ class WorkshopDiffEngine {
           );
         }
       }
+      onProgress?.call(++processed, totalToProcess);
     }
 
     // 2. 遍历本地 ACTIVE 集合：对未出现在远端公开列表的作品执行二次点查核验
@@ -363,6 +378,7 @@ class WorkshopDiffEngine {
             });
           });
         }
+        onProgress?.call(++processed, totalToProcess);
       }
     }
 

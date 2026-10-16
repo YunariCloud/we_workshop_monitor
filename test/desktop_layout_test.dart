@@ -462,6 +462,13 @@ void main() {
         expect(tester.takeException(), isNull);
         await tester.tap(find.byTooltip('返回'));
         await tester.pumpAndSettle();
+        await tester.tap(find.text('WebDAV 云端备份'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('云端默认使用轻量备份'), findsOneWidget);
+        expect(find.text('密码 / 应用密码'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byTooltip('返回'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('内容分级'));
         await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(CheckboxListTile, '成人'));

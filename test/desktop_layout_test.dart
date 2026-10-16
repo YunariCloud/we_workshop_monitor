@@ -333,6 +333,20 @@ void main() {
             await tester.tap(find.text('山间回声 · Mountain Echoes'));
             await tester.pumpAndSettle();
             expect(find.text('变更历史'), findsOneWidget);
+            if (const bool.fromEnvironment('SAVE_UI_PREVIEW') &&
+                size.width == 1440) {
+              await tester.runAsync(() async {
+                final image = await (preview.currentContext!.findRenderObject()!
+                        as RenderRepaintBoundary)
+                    .toImage();
+                final bytes =
+                    await image.toByteData(format: ui.ImageByteFormat.png);
+                await File(
+                        '.dart_tool/ui-preview/details-${dark ? 'dark' : 'light'}.png')
+                    .writeAsBytes(bytes!.buffer.asUint8List());
+                image.dispose();
+              });
+            }
             expect(tester.takeException(), isNull);
             await tester.tap(find.byIcon(Icons.close).last);
             await tester.pumpAndSettle();

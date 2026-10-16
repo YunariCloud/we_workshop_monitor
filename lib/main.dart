@@ -1246,74 +1246,40 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                               scrollDirection: Axis.horizontal,
                               children: [
                                 for (final relPath in historicalPreviewPaths)
-                                  Container(
-                                    width: 240,
-                                    margin: EdgeInsets.only(right: 14),
-                                    decoration: BoxDecoration(
-                                      color: AppPalette.bgCanvas,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: relPath == item.previewLocalPath
-                                            ? AppPalette.accentCyan
-                                            : AppPalette.borderSubtle,
-                                      ),
-                                    ),
-                                    clipBehavior: Clip.antiAlias,
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Expanded(
-                                          child: Image.file(
-                                            File(
-                                              p.join(
-                                                widget.database.dataRootDir,
-                                                relPath,
-                                              ),
-                                            ),
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) =>
-                                                Center(
-                                              child: Icon(Icons.broken_image),
-                                            ),
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 6,
-                                          ),
-                                          color: AppPalette.bgCard,
-                                          child: Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.spaceBetween,
-                                            children: [
-                                              Text(
+                                  Padding(
+                                    padding: EdgeInsets.only(right: 14),
+                                    child: SizedBox(
+                                        width: 280,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                                child: ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              child: SizedBox.expand(
+                                                  child: WorkshopPreview(
+                                                dataRootDir:
+                                                    widget.database.dataRootDir,
+                                                localPath: relPath,
+                                                remoteUrl: relPath ==
+                                                        item.previewLocalPath
+                                                    ? item.previewRemoteUrl
+                                                    : '',
+                                              )),
+                                            )),
+                                            SizedBox(height: 8),
+                                            Text(
                                                 relPath == item.previewLocalPath
                                                     ? '当前封面'
-                                                    : '历史旧版封面',
+                                                    : '历史封面',
                                                 style: TextStyle(
-                                                  fontSize: 11.5,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: relPath ==
-                                                          item.previewLocalPath
-                                                      ? AppPalette.accentCyan
-                                                      : AppPalette
-                                                          .statusModified,
-                                                ),
-                                              ),
-                                              Text(
-                                                p.basename(relPath),
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: AppPalette.textMuted,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                                    fontSize: 12,
+                                                    color: AppPalette
+                                                        .textSecondary)),
+                                          ],
+                                        )),
                                   ),
                               ],
                             ),
@@ -1472,11 +1438,6 @@ class _MainDesktopShellState extends State<MainDesktopShell> {
                       },
                       icon: Icon(Icons.open_in_new, size: 16),
                       label: Text('访问 Steam 创意工坊页面'),
-                    ),
-                    SizedBox(width: 10),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: Text('完成查看'),
                     ),
                   ],
                 ),

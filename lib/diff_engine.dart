@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'steam_api_service.dart';
@@ -19,6 +21,7 @@ class WorkshopDiffEngine {
   Future<SyncReport> syncCreator({
     required Creator creator,
     required String apiKey,
+    SteamQueryMode queryMode = SteamQueryMode.automatic,
     void Function(String stageMessage)? onStatusUpdate,
   }) async {
     final now = DateTime.now().toUtc();
@@ -30,9 +33,10 @@ class WorkshopDiffEngine {
     final remoteEntries = await steamService.fetchAllCreatorItems(
       steamId: creator.steamId,
       apiKey: apiKey,
+      queryMode: queryMode,
       onProgress: (fetched, total) {
         onStatusUpdate?.call(
-          '已拉取作品列表元数据 $fetched / ${total > 0 ? total : fetched}...',
+          '${steamService.lastFetchSourceLabel}：正在读取作品 $fetched / ${total > 0 ? total : fetched}...',
         );
       },
     );
@@ -210,8 +214,12 @@ class WorkshopDiffEngine {
 
         final bool hasChanged = existing.contentHash != newContentHash ||
             existing.timeUpdated != remote.timeUpdated;
+        final needsPreviewRepair = existing.previewLocalPath == null ||
+            !await File(
+                    p.join(database.dataRootDir, existing.previewLocalPath!))
+                .exists();
 
-        if (hasChanged) {
+        if (hasChanged || needsPreviewRepair) {
           final diffMap = <String, dynamic>{};
           if (existing.title != remote.title) {
             diffMap['title'] = {'old': existing.title, 'new': remote.title};
@@ -237,19 +245,22 @@ class WorkshopDiffEngine {
           String? updatedPreviewSha256 = existing.previewSha256;
 
           if (existing.previewRemoteUrl != remote.previewUrl ||
-              existing.timeUpdated != remote.timeUpdated) {
+              existing.timeUpdated != remote.timeUpdated ||
+              needsPreviewRepair) {
             final newPreview = await steamService.downloadPreviewImage(
               creatorSteamId: creator.steamId,
               publishedFileId: remote.publishedFileId,
               previewUrl: remote.previewUrl,
             );
-            if (newPreview != null &&
-                newPreview.sha256Hash != existing.previewSha256) {
+            if (newPreview != null) {
               // 保留旧预览图文件不删除，同时记录新旧预览图路径至时光机日志
-              diffMap['preview_local_path'] = {
-                'old': existing.previewLocalPath,
-                'new': newPreview.relativePath,
-              };
+              if (existing.previewSha256 != null &&
+                  newPreview.sha256Hash != existing.previewSha256) {
+                diffMap['preview_local_path'] = {
+                  'old': existing.previewLocalPath,
+                  'new': newPreview.relativePath,
+                };
+              }
               updatedPreviewPath = newPreview.relativePath;
               updatedPreviewSha256 = newPreview.sha256Hash;
             }

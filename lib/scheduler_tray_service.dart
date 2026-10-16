@@ -69,7 +69,7 @@ class SchedulerAndTrayService with WindowListener, TrayListener {
     }
   }
 
-  /// 后台批量轮询所有已添加的创作者，并在发现变更时自动触发本地与 WebDAV 增量备份
+  /// 后台批量轮询所有已添加的创作者，并在发现变更时自动触发本地增量备份
   Future<void> runScheduledSyncAllCreators() async {
     final creators = await database.getAllCreators();
     if (creators.isEmpty) return;
@@ -82,6 +82,7 @@ class SchedulerAndTrayService with WindowListener, TrayListener {
         final report = await diffEngine.syncCreator(
           creator: creator,
           apiKey: _currentSettings.steamApiKey,
+          queryMode: _currentSettings.steamQueryMode,
           onStatusUpdate: (msg) => onBackgroundSyncEvent(msg),
         );
         if (report.hasAnyChange) {
@@ -91,19 +92,12 @@ class SchedulerAndTrayService with WindowListener, TrayListener {
       } catch (_) {}
     }
 
-    // 若检测到新增、修改或下架，且开启了自动备份，则自动执行本地镜像与 WebDAV 增量同步
+    // 若检测到新增、修改或下架，且开启了自动备份，则自动执行本地镜像增量同步
     if (anyChanged && _currentSettings.autoBackupAfterChange) {
       try {
         if (_currentSettings.localBackupDir.trim().isNotEmpty) {
           await backupService.runLocalMirrorSync(
             targetMirrorDir: _currentSettings.localBackupDir.trim(),
-          );
-        }
-        if (_currentSettings.webdavUrl.trim().isNotEmpty &&
-            _currentSettings.webdavUsername.trim().isNotEmpty &&
-            _currentSettings.webdavPassword.isNotEmpty) {
-          await backupService.runWebDavIncrementalSync(
-            settings: _currentSettings,
           );
         }
       } catch (_) {}

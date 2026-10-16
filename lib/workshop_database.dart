@@ -16,15 +16,32 @@ class WorkshopDatabase {
 
   Database get db => _db;
 
-  static Future<WorkshopDatabase> initialize() async {
+  static Future<WorkshopDatabase> initialize(
+      {String? dataRootDirOverride}) async {
     sqfliteFfiInit();
     final databaseFactory = databaseFactoryFfi;
-    final appDocDir = await getApplicationSupportDirectory();
-    final dataRootDir = p.join(appDocDir.path, 'we_workshop_monitor');
+    final dataRootDir = dataRootDirOverride ??
+        p.join((await getApplicationSupportDirectory()).path,
+            'we_workshop_monitor');
     await Directory(p.join(dataRootDir, 'previews')).create(recursive: true);
 
     final dbPath = p.join(dataRootDir, 'workshop_monitor.db');
     final db = await _openAndMigrate(databaseFactory, dbPath);
+    // Repair cached statistics left behind by the old parent-row REPLACE bug.
+    // Empty archives with positive cached counts must be built again.
+    await db.rawUpdate('''
+      UPDATE creators SET
+        is_baseline_completed = CASE
+          WHEN is_baseline_completed = 1
+            AND total_active_count + total_missing_count > 0
+            AND NOT EXISTS (SELECT 1 FROM workshop_items w
+              WHERE w.creator_steam_id = creators.steam_id)
+          THEN 0 ELSE is_baseline_completed END,
+        total_active_count = (SELECT COUNT(*) FROM workshop_items w
+          WHERE w.creator_steam_id = creators.steam_id AND w.status = 'ACTIVE'),
+        total_missing_count = (SELECT COUNT(*) FROM workshop_items w
+          WHERE w.creator_steam_id = creators.steam_id AND w.status = 'MISSING')
+    ''');
     return WorkshopDatabase._(db, dataRootDir, dbPath);
   }
 
@@ -154,11 +171,15 @@ class WorkshopDatabase {
   }
 
   Future<void> upsertCreator(Creator creator) async {
-    await _db.insert(
-      'creators',
-      creator.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    // REPLACE deletes the parent row first, cascading into workshop_items and
+    // their history. Update the existing row in place instead.
+    await _db.transaction((txn) async {
+      final updated = await txn.update('creators', creator.toMap(),
+          where: 'steam_id = ?', whereArgs: [creator.steamId]);
+      if (updated == 0) {
+        await txn.insert('creators', creator.toMap());
+      }
+    });
   }
 
   Future<void> deleteCreator(String steamId) async {

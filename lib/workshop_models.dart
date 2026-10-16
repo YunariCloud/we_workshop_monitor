@@ -291,7 +291,7 @@ class ItemChangeLog {
 /// 备份执行历史记录模型
 class BackupRecord {
   final int? backupId;
-  final String targetType; // LOCAL / WEBDAV
+  final String targetType; // LOCAL; legacy targets remain readable
   final String backupMode; // FULL_ZIP / INCREMENTAL_MIRROR / RESTORE
   final String location;
   final int fileSizeBytes;
@@ -327,9 +327,21 @@ class BackupRecord {
   }
 }
 
-/// 全局应用与双端备份配置模型
+enum SteamQueryMode {
+  automatic('自动选择'),
+  webApi('Web API Key'),
+  client('Steam 客户端'),
+  web('公开网页');
+
+  final String label;
+  const SteamQueryMode(this.label);
+}
+
+/// 全局应用与本地备份配置模型
 class AppSettings {
   final String steamApiKey;
+  final SteamQueryMode steamQueryMode;
+  final bool useDarkTheme;
   final int pollIntervalHours; // 0 = 仅手动, 2 / 6 / 12 / 24 小时
   final bool minimizeToTrayOnClose;
   final bool autoBackupAfterChange;
@@ -337,13 +349,11 @@ class AppSettings {
   final String httpProxyUrl;
   final String localBackupDir;
   final int maxLocalZipKeep;
-  final String webdavUrl;
-  final String webdavUsername;
-  final String webdavPassword;
-  final String webdavRemoteRoot;
 
   const AppSettings({
     this.steamApiKey = '',
+    this.steamQueryMode = SteamQueryMode.automatic,
+    this.useDarkTheme = false,
     this.pollIntervalHours = 6,
     this.minimizeToTrayOnClose = true,
     this.autoBackupAfterChange = true,
@@ -351,14 +361,12 @@ class AppSettings {
     this.httpProxyUrl = '',
     this.localBackupDir = '',
     this.maxLocalZipKeep = 10,
-    this.webdavUrl = 'https://dav.jianguoyun.com/dav/',
-    this.webdavUsername = '',
-    this.webdavPassword = '',
-    this.webdavRemoteRoot = '/WallpaperEngineMonitor',
   });
 
   AppSettings copyWith({
     String? steamApiKey,
+    SteamQueryMode? steamQueryMode,
+    bool? useDarkTheme,
     int? pollIntervalHours,
     bool? minimizeToTrayOnClose,
     bool? autoBackupAfterChange,
@@ -366,13 +374,11 @@ class AppSettings {
     String? httpProxyUrl,
     String? localBackupDir,
     int? maxLocalZipKeep,
-    String? webdavUrl,
-    String? webdavUsername,
-    String? webdavPassword,
-    String? webdavRemoteRoot,
   }) {
     return AppSettings(
       steamApiKey: steamApiKey ?? this.steamApiKey,
+      steamQueryMode: steamQueryMode ?? this.steamQueryMode,
+      useDarkTheme: useDarkTheme ?? this.useDarkTheme,
       pollIntervalHours: pollIntervalHours ?? this.pollIntervalHours,
       minimizeToTrayOnClose:
           minimizeToTrayOnClose ?? this.minimizeToTrayOnClose,
@@ -382,15 +388,13 @@ class AppSettings {
       httpProxyUrl: httpProxyUrl ?? this.httpProxyUrl,
       localBackupDir: localBackupDir ?? this.localBackupDir,
       maxLocalZipKeep: maxLocalZipKeep ?? this.maxLocalZipKeep,
-      webdavUrl: webdavUrl ?? this.webdavUrl,
-      webdavUsername: webdavUsername ?? this.webdavUsername,
-      webdavPassword: webdavPassword ?? this.webdavPassword,
-      webdavRemoteRoot: webdavRemoteRoot ?? this.webdavRemoteRoot,
     );
   }
 
   Map<String, dynamic> toNonSensitiveJson() {
     return {
+      'steam_query_mode': steamQueryMode.name,
+      'use_dark_theme': useDarkTheme,
       'poll_interval_hours': pollIntervalHours,
       'minimize_to_tray_on_close': minimizeToTrayOnClose,
       'auto_backup_after_change': autoBackupAfterChange,
@@ -398,34 +402,26 @@ class AppSettings {
       'http_proxy_url': httpProxyUrl,
       'local_backup_dir': localBackupDir,
       'max_local_zip_keep': maxLocalZipKeep,
-      'webdav_url': webdavUrl,
-      'webdav_username': webdavUsername,
-      'webdav_remote_root': webdavRemoteRoot,
     };
   }
 
   factory AppSettings.fromNonSensitiveJson(
     Map<String, dynamic> json, {
     String steamApiKey = '',
-    String webdavPassword = '',
   }) {
     return AppSettings(
       steamApiKey: steamApiKey,
+      steamQueryMode: SteamQueryMode.values.firstWhere(
+          (mode) => mode.name == json['steam_query_mode'],
+          orElse: () => SteamQueryMode.automatic),
+      useDarkTheme: json['use_dark_theme'] as bool? ?? false,
       pollIntervalHours: json['poll_interval_hours'] as int? ?? 6,
-      minimizeToTrayOnClose:
-          json['minimize_to_tray_on_close'] as bool? ?? true,
-      autoBackupAfterChange:
-          json['auto_backup_after_change'] as bool? ?? true,
+      minimizeToTrayOnClose: json['minimize_to_tray_on_close'] as bool? ?? true,
+      autoBackupAfterChange: json['auto_backup_after_change'] as bool? ?? true,
       downloadConcurrency: json['download_concurrency'] as int? ?? 4,
       httpProxyUrl: json['http_proxy_url'] as String? ?? '',
       localBackupDir: json['local_backup_dir'] as String? ?? '',
       maxLocalZipKeep: json['max_local_zip_keep'] as int? ?? 10,
-      webdavUrl:
-          json['webdav_url'] as String? ?? 'https://dav.jianguoyun.com/dav/',
-      webdavUsername: json['webdav_username'] as String? ?? '',
-      webdavPassword: webdavPassword,
-      webdavRemoteRoot:
-          json['webdav_remote_root'] as String? ?? '/WallpaperEngineMonitor',
     );
   }
 }
@@ -464,6 +460,37 @@ class SyncReport {
 
 /// Steam 创作者输入智能解析器（支持直接输入 64 位 SteamID、profiles 链接、id 个性链接）
 class SteamInputParser {
+  /// Only accept item URLs from Steam; bare IDs are enabled by the item tab.
+  static String? parseWorkshopFileId(String input, {bool allowBareId = false}) {
+    final value = input.trim();
+    if (allowBareId && RegExp(r'^[1-9]\d{0,19}$').hasMatch(value)) {
+      return value;
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null) return null;
+    if (uri.scheme == 'steam' && uri.host == 'url') {
+      final parts = uri.pathSegments;
+      if (parts.length == 2 &&
+          parts.first == 'CommunityFilePage' &&
+          RegExp(r'^[1-9]\d{0,19}$').hasMatch(parts.last)) {
+        return parts.last;
+      }
+      return null;
+    }
+    if (!['http', 'https'].contains(uri.scheme) ||
+        uri.host.toLowerCase() != 'steamcommunity.com' ||
+        ![
+          '/sharedfiles/filedetails',
+          '/sharedfiles/filedetails/',
+          '/workshop/filedetails',
+          '/workshop/filedetails/'
+        ].contains(uri.path)) {
+      return null;
+    }
+    final id = uri.queryParameters['id'];
+    return id != null && RegExp(r'^[1-9]\d{0,19}$').hasMatch(id) ? id : null;
+  }
+
   static final RegExp _steamId64Regex = RegExp(r'^\d{17}$');
   static final RegExp _profilesUrlRegex =
       RegExp(r'steamcommunity\.com/profiles/(\d{17})');
